@@ -4,6 +4,7 @@ import FinancialOverview from '@/components/dashboard/FinancialOverview';
 import RecentTransactions from '@/components/dashboard/RecentTransactions';
 import UpcomingPayments from '@/components/dashboard/UpcomingPayments';
 import PerformanceChart from '@/components/dashboard/PerformanceChart';
+import MarineInsuranceKPIs from '@/components/dashboard/MarineInsuranceKPIs';
 import { motion } from 'framer-motion';
 
 const Index: React.FC = () => {
@@ -17,8 +18,8 @@ const Index: React.FC = () => {
       >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-            <p className="text-muted-foreground">Welcome back to Contas</p>
+            <h1 className="text-2xl font-bold tracking-tight">MMFS Dashboard</h1>
+            <p className="text-muted-foreground">Mzansi Marine & Freight Solutions</p>
           </div>
           <div className="flex items-center gap-2">
             <select className="bg-sage-lightGray border-0 rounded-md text-sm py-2 pl-3 pr-8 focus:ring-1 focus:ring-primary-500">
@@ -34,7 +35,7 @@ const Index: React.FC = () => {
         </div>
         
         <div className="space-y-6">
-          <FinancialOverview />
+          <MarineInsuranceKPIs />
           
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2">
@@ -54,16 +55,16 @@ const Index: React.FC = () => {
                 <h3 className="font-semibold text-lg text-primary-800">Quick Actions</h3>
                 <div className="space-y-3 mt-4">
                   <button className="bg-white hover:bg-sage-lightGray text-sage-darkGray w-full py-3 px-4 rounded-lg text-sm font-medium transition-colors text-left shadow-sm">
-                    Create New Invoice
+                    New Journal Entry
                   </button>
                   <button className="bg-white hover:bg-sage-lightGray text-sage-darkGray w-full py-3 px-4 rounded-lg text-sm font-medium transition-colors text-left shadow-sm">
-                    Enter New Expense
+                    Issue Debit/Credit Note
                   </button>
                   <button className="bg-white hover:bg-sage-lightGray text-sage-darkGray w-full py-3 px-4 rounded-lg text-sm font-medium transition-colors text-left shadow-sm">
-                    Run Financial Report
+                    Reconcile Payments
                   </button>
                   <button className="bg-white hover:bg-sage-lightGray text-sage-darkGray w-full py-3 px-4 rounded-lg text-sm font-medium transition-colors text-left shadow-sm">
-                    Reconcile Accounts
+                    Marine Insurance Report
                   </button>
                 </div>
               </div>

@@ -35,10 +35,9 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
   
   const navigationItems = [
     { name: 'Dashboard', icon: Home, path: '/' },
-    { name: 'Sales', icon: ShoppingCart, path: '/sales' },
-    { name: 'Purchases', icon: Package, path: '/purchases' },
-    { name: 'Customers', icon: Users, path: '/customers' },
-    { name: 'Suppliers', icon: Truck, path: '/suppliers' },
+    { name: 'Entities', icon: Users, path: '/entities' },
+    { name: 'Debit/Credit Notes', icon: FileText, path: '/debit-credit-notes' },
+    { name: 'Payment Reconciliation', icon: CreditCard, path: '/payment-reconciliation' },
     { name: 'Banking', icon: CreditCard, path: '/banking' },
     { name: 'Accounting', icon: BookOpen, path: '/accounting' },
     { name: 'Reports', icon: PieChart, path: '/reports' },
@@ -68,13 +67,13 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
             className="flex items-center gap-2"
           >
             <div className="w-8 h-8 rounded-md bg-white flex items-center justify-center">
-              <span className="text-[hsl(var(--sidebar-background))] font-bold text-xl">C</span>
+              <span className="text-[hsl(var(--sidebar-background))] font-bold text-xl">M</span>
             </div>
-            <span className="font-semibold text-[hsl(var(--sidebar-foreground))] text-lg">Contas</span>
+            <span className="font-semibold text-[hsl(var(--sidebar-foreground))] text-lg">MMFS</span>
           </motion.div>
         ) : (
           <div className="w-8 h-8 rounded-md bg-white mx-auto flex items-center justify-center">
-            <span className="text-[hsl(var(--sidebar-background))] font-bold text-xl">C</span>
+            <span className="text-[hsl(var(--sidebar-background))] font-bold text-xl">M</span>
           </div>
         )}
       </div>
@@ -82,7 +81,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
       {/* Organization name */}
       {!collapsed ? (
         <div className="px-4 py-2 text-xs text-[hsl(var(--sidebar-foreground))]/70">
-          <span>Innovation Imperial Ltd</span>
+          <span>Marine Insurance Solutions</span>
         </div>
       ) : null}
       

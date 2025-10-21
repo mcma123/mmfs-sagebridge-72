@@ -48,168 +48,228 @@ import {
 } from '@/components/ui/select';
 
 const accounts = [
+  // Assets - Client Premium Receivables
   {
     id: 1,
-    name: 'Cash',
-    number: '10001',
+    name: 'Client Premium Receivables',
+    number: '11001',
     category: 'Assets',
     subcategory: 'Current Assets',
-    description: 'Cash on hand and in banking accounts',
-    balance: 'R24,500.00',
+    description: 'Premiums owed by clients for marine insurance policies',
+    balance: 'R245,500.00',
     active: true,
     isSystem: true
   },
   {
     id: 2,
-    name: 'Accounts Receivable',
-    number: '10002',
+    name: 'Reinsurance Recoverable',
+    number: '11002',
     category: 'Assets',
     subcategory: 'Current Assets',
-    description: 'Amounts owed by customers',
-    balance: 'R18,750.00',
+    description: 'Claims recoverable from reinsurers',
+    balance: 'R185,750.00',
     active: true,
     isSystem: true
   },
   {
     id: 3,
-    name: 'Inventory',
-    number: '10003',
+    name: 'Bank - ZAR Current Account',
+    number: '11003',
     category: 'Assets',
     subcategory: 'Current Assets',
-    description: 'Goods held for sale',
-    balance: 'R32,100.00',
-    active: true,
-    isSystem: false
-  },
-  {
-    id: 4,
-    name: 'Office Equipment',
-    number: '10101',
-    category: 'Assets',
-    subcategory: 'Fixed Assets',
-    description: 'Computers, furniture, etc.',
-    balance: 'R15,800.00',
-    active: true,
-    isSystem: false
-  },
-  {
-    id: 5,
-    name: 'Accounts Payable',
-    number: '20001',
-    category: 'Liabilities',
-    subcategory: 'Current Liabilities',
-    description: 'Amounts owed to suppliers',
-    balance: 'R12,300.00',
+    description: 'Main operating account in South African Rand',
+    balance: 'R532,100.00',
     active: true,
     isSystem: true
   },
   {
+    id: 4,
+    name: 'Bank - USD Account',
+    number: '11004',
+    category: 'Assets',
+    subcategory: 'Current Assets',
+    description: 'US Dollar denominated bank account',
+    balance: '$45,800.00',
+    active: true,
+    isSystem: true
+  },
+  {
+    id: 5,
+    name: 'Bank - EUR Account',
+    number: '11005',
+    category: 'Assets',
+    subcategory: 'Current Assets',
+    description: 'Euro denominated bank account',
+    balance: '€28,500.00',
+    active: true,
+    isSystem: true
+  },
+  // Liabilities - Commission & Premium Payables
+  {
     id: 6,
-    name: 'Salaries Payable',
-    number: '20002',
+    name: 'CDANT Commission Payable',
+    number: '21001',
     category: 'Liabilities',
     subcategory: 'Current Liabilities',
-    description: 'Salaries and wages owed',
-    balance: 'R8,500.00',
+    description: 'Commissions owed to Commercial Direct Agents',
+    balance: 'R122,300.00',
     active: true,
-    isSystem: false
+    isSystem: true
   },
   {
     id: 7,
-    name: 'Long-term Loan',
-    number: '20101',
+    name: 'Reinsurance Premium Payable',
+    number: '21002',
     category: 'Liabilities',
-    subcategory: 'Non-current Liabilities',
-    description: 'Bank loan with 5-year term',
-    balance: 'R75,000.00',
+    subcategory: 'Current Liabilities',
+    description: 'Premiums payable to reinsurers',
+    balance: 'R298,500.00',
     active: true,
-    isSystem: false
+    isSystem: true
   },
   {
     id: 8,
-    name: 'Share Capital',
-    number: '30001',
-    category: 'Equity',
-    subcategory: 'Capital',
-    description: 'Owner\'s investment',
-    balance: 'R50,000.00',
+    name: 'Unearned Premium Reserve',
+    number: '21003',
+    category: 'Liabilities',
+    subcategory: 'Current Liabilities',
+    description: 'Premium received for unexpired policy periods',
+    balance: 'R675,000.00',
     active: true,
     isSystem: true
   },
   {
     id: 9,
-    name: 'Retained Earnings',
-    number: '30002',
+    name: 'Claims Reserve',
+    number: '21004',
+    category: 'Liabilities',
+    subcategory: 'Current Liabilities',
+    description: 'Reserve for reported but unpaid claims',
+    balance: 'R425,000.00',
+    active: true,
+    isSystem: true
+  },
+  // Equity
+  {
+    id: 10,
+    name: 'Share Capital',
+    number: '31001',
     category: 'Equity',
     subcategory: 'Capital',
-    description: 'Accumulated profits',
-    balance: 'R43,200.00',
+    description: 'Owner\'s investment in MMFS',
+    balance: 'R500,000.00',
     active: true,
     isSystem: true
   },
   {
-    id: 10,
-    name: 'Sales Revenue',
-    number: '40001',
-    category: 'Income',
-    subcategory: 'Operating Revenue',
-    description: 'Income from sales',
-    balance: 'R124,500.00',
-    active: true,
-    isSystem: false
-  },
-  {
     id: 11,
-    name: 'Interest Income',
-    number: '40002',
-    category: 'Income',
-    subcategory: 'Non-operating Revenue',
-    description: 'Income from investments',
-    balance: 'R1,250.00',
+    name: 'Retained Earnings',
+    number: '31002',
+    category: 'Equity',
+    subcategory: 'Capital',
+    description: 'Accumulated profits from marine insurance operations',
+    balance: 'R343,200.00',
     active: true,
-    isSystem: false
+    isSystem: true
   },
+  // Revenue - Premium Income by Product
   {
     id: 12,
-    name: 'Cost of Goods Sold',
-    number: '50001',
-    category: 'Expenses',
-    subcategory: 'Cost of Sales',
-    description: 'Cost of items sold',
-    balance: 'R68,300.00',
+    name: 'Premium Income - Marine Cargo',
+    number: '41001',
+    category: 'Income',
+    subcategory: 'Premium Income',
+    description: 'Premium earned from marine cargo insurance',
+    balance: 'R824,500.00',
     active: true,
     isSystem: false
   },
   {
     id: 13,
-    name: 'Rent Expense',
-    number: '50002',
-    category: 'Expenses',
-    subcategory: 'Operating Expenses',
-    description: 'Office rental',
-    balance: 'R12,000.00',
+    name: 'Premium Income - Marine Hull',
+    number: '41002',
+    category: 'Income',
+    subcategory: 'Premium Income',
+    description: 'Premium earned from marine hull insurance',
+    balance: 'R654,200.00',
     active: true,
     isSystem: false
   },
   {
     id: 14,
-    name: 'Utility Expense',
-    number: '50003',
-    category: 'Expenses',
-    subcategory: 'Operating Expenses',
-    description: 'Electricity, water, etc.',
-    balance: 'R3,450.00',
+    name: 'Premium Income - Freight',
+    number: '41003',
+    category: 'Income',
+    subcategory: 'Premium Income',
+    description: 'Premium earned from freight insurance',
+    balance: 'R432,750.00',
     active: true,
     isSystem: false
   },
   {
     id: 15,
-    name: 'Depreciation',
-    number: '50004',
+    name: 'Reinsurance Commission Received',
+    number: '41004',
+    category: 'Income',
+    subcategory: 'Commission Income',
+    description: 'Commission earned from reinsurers on ceded premiums',
+    balance: 'R89,250.00',
+    active: true,
+    isSystem: false
+  },
+  // Expenses - Reinsurance & Commissions
+  {
+    id: 16,
+    name: 'Reinsurance Premium Ceded',
+    number: '51001',
     category: 'Expenses',
-    subcategory: 'Non-cash Expenses',
-    description: 'Depreciation of fixed assets',
-    balance: 'R5,200.00',
+    subcategory: 'Reinsurance Costs',
+    description: 'Premiums paid to reinsurers for risk sharing',
+    balance: 'R568,300.00',
+    active: true,
+    isSystem: false
+  },
+  {
+    id: 17,
+    name: 'Commission Expense - CDANTs',
+    number: '51002',
+    category: 'Expenses',
+    subcategory: 'Commission Costs',
+    description: 'Commissions paid to Commercial Direct Agents',
+    balance: 'R212,400.00',
+    active: true,
+    isSystem: false
+  },
+  {
+    id: 18,
+    name: 'Claims Expense',
+    number: '51003',
+    category: 'Expenses',
+    subcategory: 'Claims Costs',
+    description: 'Marine insurance claims paid to policyholders',
+    balance: 'R385,600.00',
+    active: true,
+    isSystem: false
+  },
+  {
+    id: 19,
+    name: 'Operating Expenses',
+    number: '51004',
+    category: 'Expenses',
+    subcategory: 'Operating Costs',
+    description: 'General administrative and operating expenses',
+    balance: 'R143,450.00',
+    active: true,
+    isSystem: false
+  },
+  {
+    id: 20,
+    name: 'Foreign Exchange Gains/Losses',
+    number: '51005',
+    category: 'Expenses',
+    subcategory: 'FX Adjustments',
+    description: 'Realized and unrealized foreign exchange differences',
+    balance: 'R15,200.00',
     active: true,
     isSystem: true
   },
@@ -276,7 +336,7 @@ const ChartOfAccounts = () => {
         
         <div className="bg-sage-blue rounded-lg p-6 shadow-lg">
           <h1 className="text-2xl font-semibold text-white mb-2">Chart of Accounts</h1>
-          <p className="text-white/80">Manage your list of financial accounts and categories</p>
+          <p className="text-white/80">Marine insurance account structure for MMFS operations</p>
         </div>
         
         <Card>

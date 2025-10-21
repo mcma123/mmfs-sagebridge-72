@@ -11,14 +11,12 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
-import Sales from "./pages/Sales";
-import Purchases from "./pages/Purchases";
 import Banking from "./pages/Banking";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
-import Customers from "./pages/Customers";
-import Suppliers from "./pages/Suppliers";
-import AddSupplier from "./pages/AddSupplier";
+import Entities from "./pages/Entities";
+import DebitCreditNotes from "./pages/DebitCreditNotes";
+import PaymentReconciliation from "./pages/PaymentReconciliation";
 import NotFound from "./pages/NotFound";
 import Administration from './pages/Administration';
 import ManageUsers from './pages/administration/ManageUsers';
@@ -26,7 +24,6 @@ import AddUser from './pages/administration/AddUser';
 import UserAccess from './pages/administration/UserAccess';
 import ChangePassword from './pages/administration/ChangePassword';
 import MyAccount from './pages/administration/MyAccount';
-import AddCustomer from './pages/AddCustomer';
 
 // Accounting pages
 import Accounting from './pages/Accounting';
@@ -55,14 +52,11 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
-              <Route path="/sales" element={<Sales />} />
-              <Route path="/purchases" element={<Purchases />} />
+              <Route path="/entities" element={<Entities />} />
+              <Route path="/debit-credit-notes" element={<DebitCreditNotes />} />
+              <Route path="/payment-reconciliation" element={<PaymentReconciliation />} />
               <Route path="/banking" element={<Banking />} />
               <Route path="/reports" element={<Reports />} />
-              <Route path="/customers" element={<Customers />} />
-              <Route path="/customers/add" element={<AddCustomer />} />
-              <Route path="/suppliers" element={<Suppliers />} />
-              <Route path="/suppliers/add" element={<AddSupplier />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/administration" element={<Administration />} />
               <Route path="/administration/users" element={<ManageUsers />} />

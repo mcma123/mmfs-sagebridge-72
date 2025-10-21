@@ -73,7 +73,7 @@ const QuickActions = [
   {
     title: "Reconcile Accounts",
     icon: Wallet,
-    path: "/accounting/reconciliation",
+    path: "/payment-reconciliation",
   },
   {
     title: "Adjust Opening Balance",
@@ -98,6 +98,7 @@ const Accounting = () => {
         className="space-y-6"
       >
         <h1 className="text-2xl font-semibold">Accounting</h1>
+        <p className="text-sm text-muted-foreground mt-1">Marine Insurance Accounting Module</p>
         
         <Tabs defaultValue="overview" className="w-full">
           <TabsList>
