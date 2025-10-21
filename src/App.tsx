@@ -16,6 +16,7 @@ import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Entities from "./pages/Entities";
 import DebitCreditNotes from "./pages/DebitCreditNotes";
+import CreateDebitNote from "./pages/notes/CreateDebitNote";
 import PaymentReconciliation from "./pages/PaymentReconciliation";
 import NotFound from "./pages/NotFound";
 import Administration from './pages/Administration';
@@ -53,8 +54,9 @@ const App = () => (
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/entities" element={<Entities />} />
-              <Route path="/debit-credit-notes" element={<DebitCreditNotes />} />
-              <Route path="/payment-reconciliation" element={<PaymentReconciliation />} />
+        <Route path="/debit-credit-notes" element={<DebitCreditNotes />} />
+        <Route path="/notes/debit/new" element={<CreateDebitNote />} />
+        <Route path="/payment-reconciliation" element={<PaymentReconciliation />} />
               <Route path="/banking" element={<Banking />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Settings />} />
