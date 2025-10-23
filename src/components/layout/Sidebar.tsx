@@ -78,12 +78,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
         )}
       </div>
       
-      {/* Organization name */}
-      {!collapsed ? (
-        <div className="px-4 py-2 text-xs text-[hsl(var(--sidebar-foreground))]/70">
-          <span>Marine Insurance Solutions</span>
-        </div>
-      ) : null}
+      {null}
       
       <nav className="mt-4 px-2 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 16rem)' }}>
         <ul className="space-y-1">

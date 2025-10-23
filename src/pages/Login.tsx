@@ -38,23 +38,14 @@ const Login: React.FC = () => {
   };
   
   return (
-    <div className="min-h-screen bg-sage-lightGray flex flex-col justify-center py-6 sm:py-12 px-4 sm:px-6 lg:px-8">
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="sm:mx-auto sm:w-full sm:max-w-md"
-      >
-        <div className="flex justify-center">
-          <div className="w-12 h-12 rounded-lg bg-sage-blue flex items-center justify-center shadow-lg">
-            <span className="text-white font-bold text-xl">C</span>
-          </div>
-        </div>
-        <h2 className="mt-6 text-center text-2xl sm:text-3xl font-extrabold text-gray-900">Contas</h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Powered by Innovation Imperial
-        </p>
-      </motion.div>
+    <div className="min-h-screen bg-gradient-to-b from-white via-white to-blue-50 flex flex-col justify-center py-6 sm:py-12 px-4 sm:px-6 lg:px-8">
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 mb-6 border-b-4 border-[#D4AF37] shadow-sm">
+        <img
+          src="/banner.png"
+          alt="MMFS Banner"
+          className="w-full h-auto max-h-[180px] sm:max-h-[220px] md:max-h-[260px]"
+        />
+      </div>
 
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
@@ -90,7 +81,7 @@ const Login: React.FC = () => {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-sage-blue focus:border-sage-blue text-sm"
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#103E7C] focus:border-[#103E7C] text-sm"
                   placeholder="you@example.com"
                 />
               </div>
@@ -109,7 +100,7 @@ const Login: React.FC = () => {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-sage-blue focus:border-sage-blue text-sm"
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-[#103E7C] focus:border-[#103E7C] text-sm"
                   placeholder="••••••••"
                 />
                 <button
@@ -128,7 +119,7 @@ const Login: React.FC = () => {
                   id="remember-me"
                   name="remember-me"
                   type="checkbox"
-                  className="h-4 w-4 text-sage-blue focus:ring-sage-blue border-gray-300 rounded"
+                  className="h-4 w-4 text-[#103E7C] focus:ring-[#103E7C] border-gray-300 rounded"
                 />
                 <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">
                   Remember me
@@ -136,7 +127,7 @@ const Login: React.FC = () => {
               </div>
 
               <div className="text-sm">
-                <a href="#" className="font-medium text-sage-blue hover:text-sage-darkBlue">
+                <a href="#" className="font-medium text-[#103E7C] hover:text-[#0a3f72]">
                   Forgot your password?
                 </a>
               </div>
@@ -146,7 +137,7 @@ const Login: React.FC = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-sage-blue hover:bg-sage-darkBlue focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sage-blue transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#103E7C] hover:bg-[#0a3f72] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#D4AF37] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -204,7 +195,7 @@ const Login: React.FC = () => {
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
               Don't have an account?{" "}
-              <Link to="/signup" className="font-medium text-sage-blue hover:text-sage-darkBlue">
+              <Link to="/signup" className="font-medium text-[#103E7C] hover:text-[#0a3f72]">
                 Sign up now
               </Link>
             </p>
@@ -219,16 +210,16 @@ const Login: React.FC = () => {
         transition={{ duration: 0.5, delay: 0.4 }}
         className="mt-4 sm:mt-6 sm:mx-auto sm:w-full sm:max-w-md"
       >
-        <div className="bg-sage-lightBlue bg-opacity-70 py-3 sm:py-4 px-4 sm:px-6 rounded-md shadow-sm border border-sage-blue border-opacity-20">
-          <h3 className="text-center text-xs sm:text-sm font-medium text-sage-darkBlue mb-2">Demo Credentials</h3>
+        <div className="bg-blue-50 bg-opacity-70 py-3 sm:py-4 px-4 sm:px-6 rounded-md shadow-sm border border-[#103E7C] border-opacity-20">
+          <h3 className="text-center text-xs sm:text-sm font-medium text-[#0a3f72] mb-2">Demo Credentials</h3>
           <div className={`${isMobile ? 'flex flex-col space-y-2' : 'grid grid-cols-2 gap-2'} text-sm`}>
             <div className="bg-white px-3 py-2 rounded">
               <span className="block text-xs text-gray-500">Email</span>
-              <span className="font-medium text-sage-darkBlue text-xs sm:text-sm">demo@contas.co.za</span>
+              <span className="font-medium text-[#0a3f72] text-xs sm:text-sm">demo@contas.co.za</span>
             </div>
             <div className="bg-white px-3 py-2 rounded">
               <span className="block text-xs text-gray-500">Password</span>
-              <span className="font-medium text-sage-darkBlue text-xs sm:text-sm">demo123456</span>
+              <span className="font-medium text-[#0a3f72] text-xs sm:text-sm">demo123456</span>
             </div>
           </div>
           <p className="text-xs text-center mt-2 text-gray-600">Use these credentials to explore the demo application</p>
