@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { ArrowLeft, Save } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import mmfsLogo from '@/assets/mmfs-logo.jpg';
 
 const debitNoteSchema = z.object({
   issuedTo: z.string().min(1, 'Issued to is required'),
@@ -80,19 +81,39 @@ const CreateDebitNote = () => {
         animate={{ opacity: 1, y: 0 }}
         className="space-y-6"
       >
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/debit-credit-notes')}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="text-2xl font-semibold">Create Debit Note</h1>
+        {/* MMFS Branded Header */}
+        <div className="relative bg-primary text-primary-foreground rounded-lg overflow-hidden shadow-xl">
+          <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary/90" />
+          <div className="absolute right-0 top-0 h-full w-1/3 bg-secondary transform skew-x-[-15deg] origin-top-right" />
+          
+          <div className="relative p-6">
+            <div className="flex items-center gap-6 mb-4">
+              <img src={mmfsLogo} alt="MMFS Logo" className="h-16 w-auto object-contain bg-white/95 rounded-lg p-2 shadow-lg" />
+              <div>
+                <h1 className="text-3xl font-bold">Create Debit Note</h1>
+                <p className="text-primary-foreground/90 mt-1">Marine Insurance Premium Adjustment</p>
+              </div>
+            </div>
+            <Button 
+              variant="ghost" 
+              onClick={() => navigate('/debit-credit-notes')}
+              className="text-primary-foreground hover:bg-white/20"
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Debit/Credit Notes
+            </Button>
+          </div>
         </div>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             {/* Entity Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Entity Details</CardTitle>
+            <Card className="border-t-4 border-t-secondary shadow-lg">
+              <CardHeader className="bg-gradient-to-r from-primary/5 to-secondary/5">
+                <CardTitle className="text-primary flex items-center gap-2">
+                  <div className="h-1 w-8 bg-secondary rounded-full" />
+                  Entity Details
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FormField
@@ -144,9 +165,12 @@ const CreateDebitNote = () => {
             </Card>
 
             {/* Policy Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Policy Details</CardTitle>
+            <Card className="border-t-4 border-t-secondary shadow-lg">
+              <CardHeader className="bg-gradient-to-r from-primary/5 to-secondary/5">
+                <CardTitle className="text-primary flex items-center gap-2">
+                  <div className="h-1 w-8 bg-secondary rounded-full" />
+                  Policy Details
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FormField
@@ -210,9 +234,12 @@ const CreateDebitNote = () => {
             </Card>
 
             {/* Premium Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Premium Details</CardTitle>
+            <Card className="border-t-4 border-t-secondary shadow-lg">
+              <CardHeader className="bg-gradient-to-r from-primary/5 to-secondary/5">
+                <CardTitle className="text-primary flex items-center gap-2">
+                  <div className="h-1 w-8 bg-secondary rounded-full" />
+                  Premium Details
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FormField
@@ -282,18 +309,18 @@ const CreateDebitNote = () => {
                 />
 
                 {/* Calculations Display */}
-                <div className="border-t pt-4 space-y-2 bg-muted/50 p-4 rounded-md">
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium">Our Share Amount:</span>
-                    <span className="text-sm">{form.watch('currency')} {ourShareAmount.toFixed(2)}</span>
+                <div className="border-t-2 border-t-secondary/20 pt-4 space-y-3 bg-gradient-to-br from-primary/5 to-secondary/5 p-5 rounded-lg shadow-inner">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-muted-foreground">Our Share Amount:</span>
+                    <span className="text-base font-semibold">{form.watch('currency')} {ourShareAmount.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium">Less Commission:</span>
-                    <span className="text-sm text-destructive">-{form.watch('currency')} {commissionAmount.toFixed(2)}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-muted-foreground">Less Commission:</span>
+                    <span className="text-base font-semibold text-destructive">-{form.watch('currency')} {commissionAmount.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between border-t pt-2">
-                    <span className="font-semibold">Net Due From Entity:</span>
-                    <span className="font-semibold text-lg">{form.watch('currency')} {netDue.toFixed(2)}</span>
+                  <div className="flex justify-between items-center border-t-2 border-secondary/30 pt-3">
+                    <span className="font-bold text-primary">Net Due From Entity:</span>
+                    <span className="font-bold text-xl text-secondary">{form.watch('currency')} {netDue.toFixed(2)}</span>
                   </div>
                 </div>
 
@@ -314,9 +341,12 @@ const CreateDebitNote = () => {
             </Card>
 
             {/* Additional Information */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Additional Information</CardTitle>
+            <Card className="border-t-4 border-t-secondary shadow-lg">
+              <CardHeader className="bg-gradient-to-r from-primary/5 to-secondary/5">
+                <CardTitle className="text-primary flex items-center gap-2">
+                  <div className="h-1 w-8 bg-secondary rounded-full" />
+                  Additional Information
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <FormField
@@ -354,15 +384,19 @@ const CreateDebitNote = () => {
             </Card>
 
             {/* Action Buttons */}
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-4 pt-6">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => navigate('/debit-credit-notes')}
+                className="border-primary/30 hover:bg-primary/5"
               >
                 Cancel
               </Button>
-              <Button type="submit">
+              <Button 
+                type="submit" 
+                className="bg-secondary hover:bg-secondary/90 text-secondary-foreground shadow-lg hover:shadow-xl transition-all"
+              >
                 <Save className="h-4 w-4 mr-2" />
                 Create Debit Note
               </Button>
