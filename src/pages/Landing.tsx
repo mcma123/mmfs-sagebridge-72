@@ -3,7 +3,6 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileText, LayoutDashboard, ArrowRight } from 'lucide-react';
-import mmfsLogo from '@/assets/mmfs-logo.jpg';
 
 const Landing: React.FC = () => {
   const navigate = useNavigate();
@@ -11,36 +10,26 @@ const Landing: React.FC = () => {
   const systems = [
     {
       title: 'Accounting System',
-      description: 'Comprehensive financial management and accounting tools for your business operations.',
+      description: 'Marine insurance accounting with GL, Trial Balance, and more',
       icon: LayoutDashboard,
-      route: '/login',
-      gradient: 'from-primary via-primary/90 to-primary/80',
-      available: true
+      path: '/login',
+      available: true,
     },
     {
       title: 'Document Management System',
-      description: 'Efficient document organization, storage, and retrieval system.',
+      description: 'Projects, progress tracking, and centralized document control',
       icon: FileText,
-      route: '/dms/login',
-      gradient: 'from-secondary via-secondary/90 to-secondary/80',
-      available: true
-    }
+      path: '/dms/login',
+      available: true,
+    },
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary via-primary/95 to-primary/90 relative overflow-hidden">
-      {/* Decorative elements */}
-      <div className="absolute top-0 right-0 w-1/2 h-full">
-        <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-l from-secondary/20 to-transparent transform skew-x-12 origin-top-right"></div>
-      </div>
-      
-      <div className="absolute bottom-0 left-0 w-96 h-96 bg-secondary/10 rounded-full blur-3xl"></div>
-      <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-secondary/5 rounded-full blur-2xl"></div>
-
-      {/* Content */}
-      <div className="relative z-10 container mx-auto px-4 py-12">
+    <div className="min-h-screen bg-gradient-to-br from-primary via-primary/95 to-primary/90">
+      <div className="container mx-auto px-6 py-16">
+        {/* Header */}
         <motion.div
-          initial={{ opacity: 0, y: -20 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
           className="text-center mb-16"
@@ -48,8 +37,8 @@ const Landing: React.FC = () => {
           {/* Logo and Header */}
           <div className="flex flex-col items-center gap-6 mb-8">
             <motion.img
-              src={mmfsLogo}
-              alt="MMFS Logo"
+              src="/banner.png"
+              alt="MMFS Banner"
               className="h-24 w-auto rounded-lg shadow-2xl"
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -80,30 +69,28 @@ const Landing: React.FC = () => {
             return (
               <motion.div
                 key={system.title}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 + index * 0.2, duration: 0.6 }}
+                transition={{ delay: index * 0.1, duration: 0.4 }}
               >
                 <Card
-                  className={`group cursor-pointer transition-all duration-300 hover:scale-105 hover:shadow-2xl border-0 bg-white/95 backdrop-blur-sm overflow-hidden h-full ${
-                    !system.available ? 'opacity-75' : ''
-                  }`}
-                  onClick={() => system.available && navigate(system.route)}
+                  onClick={() => navigate(system.path)}
+                  className="group hover:shadow-xl transition-shadow bg-white/95 border-0 shadow-lg cursor-pointer"
                 >
-                  <div className={`h-2 bg-gradient-to-r ${system.gradient}`}></div>
-                  
-                  <CardHeader className="pb-4">
-                    <div className="flex items-start justify-between">
-                      <div className={`p-4 rounded-xl bg-gradient-to-br ${system.gradient} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                        <Icon className="h-8 w-8 text-white" />
+                  <CardHeader>
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 rounded-lg bg-gradient-to-br from-secondary to-secondary/80">
+                        <Icon className="h-6 w-6 text-white" />
                       </div>
-                      {system.available && (
-                        <ArrowRight className="h-6 w-6 text-primary group-hover:translate-x-2 transition-transform duration-300" />
-                      )}
+                      <div>
+                        <CardTitle className="text-2xl font-bold text-primary">
+                          {system.title}
+                        </CardTitle>
+                        <CardDescription className="text-muted-foreground">
+                          {system.available ? 'Available' : 'Coming Soon'}
+                        </CardDescription>
+                      </div>
                     </div>
-                    <CardTitle className="text-2xl font-bold text-primary mt-4">
-                      {system.title}
-                    </CardTitle>
                     {!system.available && (
                       <span className="inline-block px-3 py-1 text-xs font-semibold text-secondary bg-secondary/10 rounded-full mt-2">
                         Coming Soon
@@ -133,12 +120,10 @@ const Landing: React.FC = () => {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 1, duration: 0.6 }}
+          transition={{ delay: 0.5, duration: 0.6 }}
           className="text-center mt-16 text-white/70"
         >
-          <p className="text-sm">
-            © 2025 MMFS. All rights reserved.
-          </p>
+          <p>© {new Date().getFullYear()} MMFS. All rights reserved.</p>
         </motion.div>
       </div>
     </div>

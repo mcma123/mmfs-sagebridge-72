@@ -7,7 +7,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileText, Lock, User } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import mmfsLogo from '@/assets/mmfs-logo.jpg';
 
 const DMSLogin: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -48,8 +47,8 @@ const DMSLogin: React.FC = () => {
       >
         <div className="text-center mb-8">
           <motion.img
-            src={mmfsLogo}
-            alt="MMFS Logo"
+            src="/banner.png"
+            alt="MMFS Banner"
             className="h-20 w-auto mx-auto mb-4 rounded-lg shadow-2xl"
             initial={{ scale: 0.8 }}
             animate={{ scale: 1 }}
