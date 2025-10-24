@@ -33,8 +33,11 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
     navigate('/login');
   };
   
+  // Route Dashboard to the active module when inside Accounting
+  const dashboardPath = location.pathname.startsWith('/accounting') ? '/accounting' : '/dashboard';
+  
   const navigationItems = [
-    { name: 'Dashboard', icon: Home, path: '/' },
+    { name: 'Dashboard', icon: Home, path: dashboardPath },
     { name: 'Entities', icon: Users, path: '/entities' },
     { name: 'Debit/Credit Notes', icon: FileText, path: '/debit-credit-notes' },
     { name: 'Payment Reconciliation', icon: CreditCard, path: '/payment-reconciliation' },

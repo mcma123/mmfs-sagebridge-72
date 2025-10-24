@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { EyeIcon, EyeOffIcon } from 'lucide-react';
+import { EyeIcon, EyeOffIcon, ArrowLeft } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle } from 'lucide-react';
@@ -30,7 +30,7 @@ const Login: React.FC = () => {
       
       // For demo purposes, we'll just navigate if email includes '@'
       if (email.includes('@') && password.length >= 6) {
-        navigate('/');
+        navigate('/dashboard');
       } else {
         setError('Invalid email or password. Please try again.');
       }
@@ -40,11 +40,21 @@ const Login: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-white to-blue-50 flex flex-col justify-center py-6 sm:py-12 px-4 sm:px-6 lg:px-8">
       <div className="-mx-4 sm:-mx-6 lg:-mx-8 mb-6 border-b-4 border-[#D4AF37] shadow-sm">
-        <img
-          src="/banner.png"
-          alt="MMFS Banner"
-          className="w-full h-auto max-h-[180px] sm:max-h-[220px] md:max-h-[260px]"
-        />
+         <img
+           src="/banner.png"
+           alt="MMFS Banner"
+           className="w-full object-cover max-h-[180px] sm:max-h-[220px] md:max-h-[260px]"
+         />
+       </div>
+
+      <div className="sm:mx-auto sm:w-full sm:max-w-md mb-2">
+        <Link
+          to="/"
+          className="inline-flex items-center px-3 py-2 text-sm font-medium text-[#103E7C] border border-[#103E7C] rounded hover:bg-[#103E7C] hover:text-white transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to MMFS Hub
+        </Link>
       </div>
 
       <motion.div 

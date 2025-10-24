@@ -53,7 +53,7 @@ const Administration = () => {
           variant="ghost"
           size="sm"
           className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 flex items-center gap-2 text-sm font-medium"
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/accounting')}
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Menu
@@ -65,15 +65,15 @@ const Administration = () => {
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-semibold text-white mb-2">Administration</h1>
-            <p className="text-white/80">Manage system settings and user access</p>
+            <p className="text-white/80">Manage users, roles, and account settings</p>
           </div>
         </div>
       </div>
 
-      {/* Admin Features Grid */}
+      {/* Features Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {adminFeatures.map((feature) => (
-          <Card 
+          <Card
             key={feature.title}
             className="hover:shadow-lg transition-shadow cursor-pointer border-none shadow-md"
             onClick={() => navigate(feature.path)}
@@ -111,23 +111,15 @@ const Administration = () => {
                 <LogOut className="h-5 w-5 text-red-600" />
               </div>
               <div>
-                <CardTitle className="text-lg font-semibold text-red-600">Logout</CardTitle>
-                <CardDescription className="text-red-600/80">Sign out of your account</CardDescription>
+                <CardTitle className="text-lg font-semibold">Logout</CardTitle>
+                <CardDescription>Sign out of your account</CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            <Button 
-              variant="ghost" 
-              className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-100"
-            >
-              Sign Out →
-            </Button>
-          </CardContent>
         </Card>
       </div>
     </motion.div>
   );
 };
 
-export default Administration; 
+export default Administration;
