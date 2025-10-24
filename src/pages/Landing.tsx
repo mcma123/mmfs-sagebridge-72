@@ -21,9 +21,9 @@ const Landing: React.FC = () => {
       title: 'Document Management System',
       description: 'Efficient document organization, storage, and retrieval system.',
       icon: FileText,
-      route: '#',
+      route: '/dms/login',
       gradient: 'from-secondary via-secondary/90 to-secondary/80',
-      available: false
+      available: true
     }
   ];
 

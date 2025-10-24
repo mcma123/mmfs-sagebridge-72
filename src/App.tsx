@@ -12,6 +12,14 @@ import Landing from "./pages/Landing";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+
+// DMS imports
+import DMSLogin from "./pages/dms/DMSLogin";
+import DMSDashboard from "./pages/dms/DMSDashboard";
+import Projects from "./pages/dms/Projects";
+import ProgressTracker from "./pages/dms/ProgressTracker";
+import Documents from "./pages/dms/Documents";
+import Tasks from "./pages/dms/Tasks";
 import Banking from "./pages/Banking";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
@@ -83,6 +91,14 @@ const App = () => (
               <Route path="/accounting/adjust-opening-balance" element={<AdjustOpeningBalance />} />
               <Route path="/accounting/tax-reports" element={<TaxReports />} />
               <Route path="/accounting/period-end" element={<PeriodEnd />} />
+              
+              {/* DMS Routes */}
+              <Route path="/dms/login" element={<DMSLogin />} />
+              <Route path="/dms/dashboard" element={<DMSDashboard />} />
+              <Route path="/dms/projects" element={<Projects />} />
+              <Route path="/dms/progress" element={<ProgressTracker />} />
+              <Route path="/dms/documents" element={<Documents />} />
+              <Route path="/dms/tasks" element={<Tasks />} />
               
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
