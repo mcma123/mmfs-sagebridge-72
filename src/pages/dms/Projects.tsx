@@ -6,10 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Search, Grid3x3, List, Kanban, Flag } from 'lucide-react';
+import SlideOutPanel from '@/components/ui/slide-out-panel';
+import NewProjectForm, { ProjectFormData } from '@/components/dms/NewProjectForm';
+import { toast } from '@/hooks/use-toast';
 
 const Projects: React.FC = () => {
   const [view, setView] = useState<'grid' | 'list' | 'kanban'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
 
   const mockProjects = [
     {
@@ -50,6 +54,8 @@ const Projects: React.FC = () => {
     },
   ];
 
+  const [projects, setProjects] = useState(mockProjects);
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Active':
@@ -85,11 +91,44 @@ const Projects: React.FC = () => {
             <h1 className="text-3xl font-bold text-primary">Project Management</h1>
             <p className="text-muted-foreground mt-1">Manage all client placements and reinsurance deals</p>
           </div>
-          <Button className="bg-secondary hover:bg-secondary/90 gap-2">
+          <Button className="bg-secondary hover:bg-secondary/90 gap-2" onClick={() => setNewProjectOpen(true)}>
             <Plus className="h-4 w-4" />
             New Project
           </Button>
         </div>
+
+        <SlideOutPanel title="New Project" open={newProjectOpen} onOpenChange={setNewProjectOpen}>
+          <NewProjectForm
+            onCreate={(data: ProjectFormData) => {
+              const currencySymbol = (c: ProjectFormData['currency']) => {
+                switch (c) {
+                  case 'USD': return '$';
+                  case 'EUR': return '€';
+                  case 'GBP': return '£';
+                  case 'ZAR': return 'R';
+                  default: return '';
+                }
+              };
+              const formattedValue = `${currencySymbol(data.currency)}${new Intl.NumberFormat().format(data.value)}`;
+              const newItem = {
+                id: `PRJ-${Date.now()}`,
+                country: data.country,
+                client: data.clientName,
+                name: data.projectName,
+                type: data.projectType,
+                coverage: data.coverage,
+                value: formattedValue,
+                dueDate: data.endDate || data.startDate,
+                status: data.status,
+                progress: 0,
+              };
+              setProjects([newItem, ...projects]);
+              setNewProjectOpen(false);
+              toast({ title: 'Project created', description: `${newItem.name} added to the list` });
+            }}
+            onCancel={() => setNewProjectOpen(false)}
+          />
+        </SlideOutPanel>
 
         {/* Filters & View Toggle */}
         <Card>
@@ -137,7 +176,13 @@ const Projects: React.FC = () => {
         {/* Projects Grid */}
         {view === 'grid' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {mockProjects.map((project, index) => (
+            {projects
+              .filter(p => (
+                p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                p.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                p.id.toLowerCase().includes(searchQuery.toLowerCase())
+              ))
+              .map((project, index) => (
               <motion.div
                 key={project.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -220,7 +265,13 @@ const Projects: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {mockProjects.map((project) => (
+                    {projects
+                      .filter(p => (
+                        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        p.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        p.id.toLowerCase().includes(searchQuery.toLowerCase())
+                      ))
+                      .map((project) => (
                       <tr key={project.id} className="border-b hover:bg-muted/30 cursor-pointer">
                         <td className="px-4 py-3 font-mono text-sm">{project.id}</td>
                         <td className="px-4 py-3 text-sm">{project.country}</td>
