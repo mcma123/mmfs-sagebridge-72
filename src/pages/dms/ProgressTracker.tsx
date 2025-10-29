@@ -8,46 +8,15 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { TrendingUp, Clock, AlertCircle, Users, Edit } from 'lucide-react';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { UpdateProgressDrawer } from '@/components/ui/UpdateProgressDrawer';
-import { updateProjectProgress } from '@/lib/api/progress';
+import { updateProjectProgress } from '@/lib/api/projects';
 import { useToast } from '@/hooks/use-toast';
+import { useProjects } from '@/lib/store/projects';
 
 const ProgressTracker: React.FC = () => {
   const { toast } = useToast();
-  const [projects, setProjects] = useState([
-    {
-      id: 'MZ-2025-FAC-002',
-      name: 'Marine Cargo Insurance - Maamba',
-      progress: 75,
-      stage: 'Binding',
-      team: ['JD', 'SM', 'TK'],
-      daysInStage: 3,
-      lastUpdate: '2 hours ago',
-      updateNote: 'Waiting for final reinsurer confirmation',
-      blockers: [],
-    },
-    {
-      id: 'ZA-2025-TRT-001',
-      name: 'Property Treaty - TransAxis',
-      progress: 45,
-      stage: 'Marketing',
-      team: ['TK', 'AB'],
-      daysInStage: 7,
-      lastUpdate: '1 day ago',
-      updateNote: 'Sent placement slip to 5 reinsurers',
-      blockers: ['Awaiting quotes from London market'],
-    },
-    {
-      id: 'ZM-2025-FAC-003',
-      name: 'Construction All Risk',
-      progress: 60,
-      stage: 'Quotations',
-      team: ['SM', 'JD', 'LC'],
-      daysInStage: 5,
-      lastUpdate: '5 hours ago',
-      updateNote: 'Received 3 quotes, analyzing terms',
-      blockers: [],
-    },
-  ]);
+  const { projects, updateProgress, addNote } = useProjects();
+  // Local preview overrides so adjusting the slider live-updates UI without mutating the shared store
+  const [previewProgress, setPreviewProgress] = useState<Record<string, number>>({});
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
@@ -88,15 +57,20 @@ const ProgressTracker: React.FC = () => {
   const openDrawerFor = (projectId: string) => {
     const proj = projects.find(p => p.id === projectId);
     if (!proj) return;
+    const effective = previewProgress[projectId] ?? proj.progress;
     setCurrentProjectId(projectId);
-    setInitialProgress(proj.progress);
+    setInitialProgress(effective);
     setDrawerOpen(true);
   };
 
   const closeDrawer = () => {
-    // Revert preview to initial value when closing without save
+    // Revert preview by clearing local override
     if (currentProjectId !== null) {
-      setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, progress: initialProgress } : p));
+      setPreviewProgress((prev) => {
+        const next = { ...prev };
+        delete next[currentProjectId!];
+        return next;
+      });
     }
     setDrawerOpen(false);
     setCurrentProjectId(null);
@@ -105,7 +79,7 @@ const ProgressTracker: React.FC = () => {
   const handlePreviewChange = (value: number) => {
     if (currentProjectId === null) return;
     const clamped = Math.max(0, Math.min(100, value));
-    setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, progress: clamped } : p));
+    setPreviewProgress((prev) => ({ ...prev, [currentProjectId!]: clamped }));
   };
 
   const handleSave = async (newValue: number, note?: string) => {
@@ -113,16 +87,24 @@ const ProgressTracker: React.FC = () => {
     if (newValue === initialProgress) { closeDrawer(); return; }
     try {
       setSaving(true);
-      // Optimistic update already applied via preview
+      // Optimistic: commit to store immediately
+      updateProgress(currentProjectId, newValue);
+      if (note && note.trim()) addNote(currentProjectId, note.trim());
       await updateProjectProgress(currentProjectId, newValue, note);
       toast({ title: 'Progress updated', description: `Project is now at ${newValue}%` });
     } catch (e) {
-      // Rollback
-      setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, progress: initialProgress } : p));
+      // Rollback to initial on error
+      updateProgress(currentProjectId, initialProgress);
       toast({ title: 'Update failed', description: 'Could not save progress', variant: 'destructive' });
     } finally {
       setSaving(false);
       setDrawerOpen(false);
+      // Clear preview override and selection
+      setPreviewProgress((prev) => {
+        const next = { ...prev };
+        if (currentProjectId) delete next[currentProjectId];
+        return next;
+      });
       setCurrentProjectId(null);
     }
   };
@@ -150,7 +132,7 @@ const ProgressTracker: React.FC = () => {
                   <TrendingUp className="h-6 w-6 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">1</p>
+                  <p className="text-2xl font-bold">{projects.filter(p => (p.status === 'Active') || (p.progress >= 80 && p.status !== 'Cancelled')).length}</p>
                   <p className="text-sm text-muted-foreground">On Track</p>
                 </div>
               </div>
@@ -163,7 +145,7 @@ const ProgressTracker: React.FC = () => {
                   <Clock className="h-6 w-6 text-yellow-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">2</p>
+                  <p className="text-2xl font-bold">{projects.filter(p => (p.status === 'In Progress') || (p.progress >= 40 && p.progress < 80)).length}</p>
                   <p className="text-sm text-muted-foreground">In Progress</p>
                 </div>
               </div>
@@ -176,7 +158,7 @@ const ProgressTracker: React.FC = () => {
                   <AlertCircle className="h-6 w-6 text-red-600" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">1</p>
+                  <p className="text-2xl font-bold">{projects.filter(p => (p.blockers && p.blockers.length > 0)).length}</p>
                   <p className="text-sm text-muted-foreground">Blocked</p>
                 </div>
               </div>
@@ -189,7 +171,7 @@ const ProgressTracker: React.FC = () => {
                   <Users className="h-6 w-6 text-secondary" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">5</p>
+                  <p className="text-2xl font-bold">{Array.from(new Set(projects.flatMap(p => p.team ?? []))).length}</p>
                   <p className="text-sm text-muted-foreground">Team Members</p>
                 </div>
               </div>
@@ -200,8 +182,9 @@ const ProgressTracker: React.FC = () => {
         {/* Projects Progress */}
         <div className="space-y-4">
           {projects.map((project, index) => {
-            const colors = getProgressColor(project.progress);
-            const status = getProgressStatus(project.progress);
+            const effectiveProgress = previewProgress[project.id] ?? project.progress;
+            const colors = getProgressColor(effectiveProgress);
+            const status = getProgressStatus(effectiveProgress);
 
             return (
               <motion.div
@@ -238,9 +221,9 @@ const ProgressTracker: React.FC = () => {
                     <div className="space-y-3">
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium text-muted-foreground">Overall Progress</span>
-                        <span className={`text-2xl font-bold ${colors.text}`}>{project.progress}%</span>
+                        <span className={`text-2xl font-bold ${colors.text}`}>{effectiveProgress}%</span>
                       </div>
-                      <ProgressBar value={project.progress} />
+                      <ProgressBar value={effectiveProgress} />
                     </div>
 
                     {/* Team & Status Info */}
@@ -248,7 +231,7 @@ const ProgressTracker: React.FC = () => {
                       <div>
                         <p className="text-sm text-muted-foreground mb-2">Team Members</p>
                         <div className="flex -space-x-2">
-                          {project.team.map((member, i) => (
+                          {(project.team ?? []).map((member, i) => (
                             <Avatar key={i} className="border-2 border-border">
                               <AvatarFallback className="bg-primary text-primary-foreground text-xs">
                                 {member}
@@ -261,29 +244,29 @@ const ProgressTracker: React.FC = () => {
                         <p className="text-sm text-muted-foreground mb-2">Days in Current Stage</p>
                         <div className="flex items-center gap-2">
                           <Clock className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-semibold">{project.daysInStage} days</span>
+                          <span className="font-semibold">{project.daysInStage ?? 0} days</span>
                         </div>
                       </div>
                       <div>
                         <p className="text-sm text-muted-foreground mb-2">Last Updated</p>
-                        <span className="text-sm font-medium">{project.lastUpdate}</span>
+                        <span className="text-sm font-medium">{project.lastUpdate ?? '—'}</span>
                       </div>
                     </div>
 
                     {/* Update Note */}
                     <div className="bg-muted/50 rounded-lg p-4">
                       <p className="text-sm font-medium mb-1">Latest Update:</p>
-                      <p className="text-sm text-muted-foreground">{project.updateNote}</p>
+                      <p className="text-sm text-muted-foreground">{project.latestNote ?? 'No updates yet'}</p>
                     </div>
 
                     {/* Blockers */}
-                    {project.blockers.length > 0 && (
+                    {(project.blockers && project.blockers.length > 0) && (
                       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                         <div className="flex items-start gap-2">
                           <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
                           <div>
                             <p className="text-sm font-semibold text-red-900 mb-1">Blockers:</p>
-                            {project.blockers.map((blocker, i) => (
+                            {project.blockers!.map((blocker, i) => (
                               <p key={i} className="text-sm text-red-800">• {blocker}</p>
                             ))}
                           </div>

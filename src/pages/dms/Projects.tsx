@@ -5,56 +5,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import { Plus, Search, Grid3x3, List, Kanban, Flag } from 'lucide-react';
 import SlideOutPanel from '@/components/ui/slide-out-panel';
 import NewProjectForm, { ProjectFormData } from '@/components/dms/NewProjectForm';
 import { toast } from '@/hooks/use-toast';
+import { useProjects } from '@/lib/store/projects';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { updateProjectStatus, createProjectNote } from '@/lib/api/projects';
 
 const Projects: React.FC = () => {
   const [view, setView] = useState<'grid' | 'list' | 'kanban'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [newProjectOpen, setNewProjectOpen] = useState(false);
-
-  const mockProjects = [
-    {
-      id: 'MZ-2025-FAC-002',
-      country: '🇲🇿 Mozambique',
-      client: 'Maamba Collieries Limited',
-      name: 'Marine Cargo Insurance',
-      type: 'Facultative',
-      coverage: 'Marine Cargo',
-      value: '$2,500,000',
-      dueDate: '2025-03-15',
-      status: 'Active',
-      progress: 75,
-    },
-    {
-      id: 'ZA-2025-TRT-001',
-      country: '🇿🇦 South Africa',
-      client: 'TransAxis Reinsurance',
-      name: 'Property Treaty',
-      type: 'Treaty',
-      coverage: 'Property',
-      value: '$5,000,000',
-      dueDate: '2025-04-20',
-      status: 'In Progress',
-      progress: 45,
-    },
-    {
-      id: 'ZM-2025-FAC-003',
-      country: '🇿🇲 Zambia',
-      client: 'Construction Corp',
-      name: 'Construction All Risk',
-      type: 'Facultative',
-      coverage: 'Construction',
-      value: '$3,200,000',
-      dueDate: '2025-02-28',
-      status: 'Pending Approval',
-      progress: 60,
-    },
-  ];
-
-  const [projects, setProjects] = useState(mockProjects);
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const { projects, addProject, updateStatus, addNote } = useProjects();
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -64,6 +29,10 @@ const Projects: React.FC = () => {
         return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       case 'Pending Approval':
         return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'Done':
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      case 'Cancelled':
+        return 'bg-rose-100 text-rose-800 border-rose-200';
       case 'Draft':
         return 'bg-muted text-muted-foreground border-border';
       default:
@@ -122,7 +91,7 @@ const Projects: React.FC = () => {
                 status: data.status,
                 progress: 0,
               };
-              setProjects([newItem, ...projects]);
+              addProject(newItem);
               setNewProjectOpen(false);
               toast({ title: 'Project created', description: `${newItem.name} added to the list` });
             }}
@@ -195,9 +164,33 @@ const Projects: React.FC = () => {
                       <Badge variant="outline" className="font-mono text-xs">
                         {project.id}
                       </Badge>
-                      <Badge className={getStatusColor(project.status)}>
-                        {project.status}
-                      </Badge>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Badge className={getStatusColor(project.status)}>
+                            {project.status}
+                          </Badge>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                              {['Active','Pending Approval','In Progress','Done','Cancelled'].map((s) => (
+                                <DropdownMenuItem
+                                  key={s}
+                                  onClick={async () => {
+                                    const prev = project.status;
+                                    updateStatus(project.id, s as any);
+                                    try {
+                                      await updateProjectStatus(project.id, s as any);
+                                      toast({ title: 'Status updated', description: `${project.name} → ${s}` });
+                                    } catch (e) {
+                                      updateStatus(project.id, prev);
+                                      toast({ title: 'Update failed', description: 'Could not change status', variant: 'destructive' });
+                                    }
+                                  }}
+                                >
+                                  {s}
+                                </DropdownMenuItem>
+                              ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                     <CardTitle className="text-lg">{project.name}</CardTitle>
                     <CardDescription className="space-y-1">
@@ -241,6 +234,47 @@ const Projects: React.FC = () => {
                         />
                       </div>
                     </div>
+
+                    {/* Notes Section */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Notes</span>
+                        {project.latestNote && (
+                          <Badge variant="outline" className="text-xs">Latest</Badge>
+                        )}
+                      </div>
+                      {project.latestNote ? (
+                        <div className="text-sm">{project.latestNote}</div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">No notes yet</div>
+                      )}
+                      <Textarea
+                        placeholder="Add note..."
+                        value={noteDrafts[project.id] || ''}
+                        onChange={(e) => setNoteDrafts((prev) => ({ ...prev, [project.id]: e.target.value }))}
+                        className="min-h-[60px]"
+                      />
+                      <div className="flex justify-end">
+                        <Button
+                          size="sm"
+                          onClick={async () => {
+                            const text = (noteDrafts[project.id] || '').trim();
+                            if (!text) return;
+                            try {
+                              await createProjectNote(project.id, text);
+                              addNote(project.id, text);
+                              setNoteDrafts((prev) => ({ ...prev, [project.id]: '' }));
+                              toast({ title: 'Note added', description: 'Your note has been saved.' });
+                            } catch (e) {
+                              toast({ title: 'Note failed', description: 'Could not save note', variant: 'destructive' });
+                            }
+                          }}
+                          disabled={!noteDrafts[project.id] || !noteDrafts[project.id].trim()}
+                        >
+                          Save Note
+                        </Button>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -279,7 +313,31 @@ const Projects: React.FC = () => {
                         <td className="px-4 py-3 text-sm font-medium">{project.name}</td>
                         <td className="px-4 py-3 text-sm">{project.value}</td>
                         <td className="px-4 py-3">
-                          <Badge className={getStatusColor(project.status)}>{project.status}</Badge>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Badge className={getStatusColor(project.status)}>{project.status}</Badge>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {['Active','Pending Approval','In Progress','Done','Cancelled'].map((s) => (
+                            <DropdownMenuItem
+                              key={s}
+                              onClick={async () => {
+                                const prev = project.status;
+                                updateStatus(project.id, s as any);
+                                try {
+                                  await updateProjectStatus(project.id, s as any);
+                                  toast({ title: 'Status updated', description: `${project.name} → ${s}` });
+                                } catch (e) {
+                                  updateStatus(project.id, prev);
+                                  toast({ title: 'Update failed', description: 'Could not change status', variant: 'destructive' });
+                                }
+                              }}
+                            >
+                              {s}
+                            </DropdownMenuItem>
+                          ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">

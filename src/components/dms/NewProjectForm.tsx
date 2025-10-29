@@ -18,7 +18,7 @@ export type ProjectFormData = {
   currency: "USD" | "EUR" | "GBP" | "ZAR";
   startDate: string; // ISO date string (YYYY-MM-DD)
   endDate?: string; // ISO date string (YYYY-MM-DD)
-  status: "Draft" | "Active" | "In Progress" | "Pending Approval";
+  status: "Draft" | "Active" | "In Progress" | "Pending Approval" | "Done" | "Cancelled";
   description?: string;
   assignedTeam?: string[];
   priority: "Low" | "Medium" | "High";
@@ -34,7 +34,7 @@ const schema = z.object({
   currency: z.enum(["USD", "EUR", "GBP", "ZAR"], { required_error: "Select a currency" }),
   startDate: z.string().min(1, "Start date is required"),
   endDate: z.string().optional(),
-  status: z.enum(["Draft", "Active", "In Progress", "Pending Approval"], { required_error: "Select a status" }),
+  status: z.enum(["Draft", "Active", "In Progress", "Pending Approval", "Done", "Cancelled"], { required_error: "Select a status" }),
   description: z.string().optional(),
   assignedTeamText: z.string().optional(),
   priority: z.enum(["Low", "Medium", "High"], { required_error: "Select priority" }),
@@ -279,6 +279,8 @@ export default function NewProjectForm({ onCreate, onCancel }: { onCreate: (data
                         <SelectItem value="Active">Active</SelectItem>
                         <SelectItem value="In Progress">In Progress</SelectItem>
                         <SelectItem value="Pending Approval">Pending Approval</SelectItem>
+                        <SelectItem value="Done">Done</SelectItem>
+                        <SelectItem value="Cancelled">Cancelled</SelectItem>
                       </SelectContent>
                     </Select>
                   </FormControl>
