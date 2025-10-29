@@ -1,15 +1,19 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import DMSLayout from '@/components/layout/DMSLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Slider } from '@/components/ui/slider';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { TrendingUp, Clock, AlertCircle, Users, Edit } from 'lucide-react';
+import { ProgressBar } from '@/components/ui/ProgressBar';
+import { UpdateProgressDrawer } from '@/components/ui/UpdateProgressDrawer';
+import { updateProjectProgress } from '@/lib/api/progress';
+import { useToast } from '@/hooks/use-toast';
 
 const ProgressTracker: React.FC = () => {
-  const mockProjects = [
+  const { toast } = useToast();
+  const [projects, setProjects] = useState([
     {
       id: 'MZ-2025-FAC-002',
       name: 'Marine Cargo Insurance - Maamba',
@@ -43,7 +47,14 @@ const ProgressTracker: React.FC = () => {
       updateNote: 'Received 3 quotes, analyzing terms',
       blockers: [],
     },
-  ];
+  ]);
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [initialProgress, setInitialProgress] = useState<number>(0);
+  const [saving, setSaving] = useState(false);
+
+  const currentProject = useMemo(() => projects.find(p => p.id === currentProjectId) || null, [projects, currentProjectId]);
 
   const getProgressColor = (progress: number) => {
     if (progress >= 80)
@@ -72,6 +83,48 @@ const ProgressTracker: React.FC = () => {
     if (progress >= 80) return 'On Track';
     if (progress >= 40) return 'In Progress';
     return 'Behind Schedule';
+  };
+
+  const openDrawerFor = (projectId: string) => {
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
+    setCurrentProjectId(projectId);
+    setInitialProgress(proj.progress);
+    setDrawerOpen(true);
+  };
+
+  const closeDrawer = () => {
+    // Revert preview to initial value when closing without save
+    if (currentProjectId !== null) {
+      setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, progress: initialProgress } : p));
+    }
+    setDrawerOpen(false);
+    setCurrentProjectId(null);
+  };
+
+  const handlePreviewChange = (value: number) => {
+    if (currentProjectId === null) return;
+    const clamped = Math.max(0, Math.min(100, value));
+    setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, progress: clamped } : p));
+  };
+
+  const handleSave = async (newValue: number, note?: string) => {
+    if (currentProjectId === null) return;
+    if (newValue === initialProgress) { closeDrawer(); return; }
+    try {
+      setSaving(true);
+      // Optimistic update already applied via preview
+      await updateProjectProgress(currentProjectId, newValue, note);
+      toast({ title: 'Progress updated', description: `Project is now at ${newValue}%` });
+    } catch (e) {
+      // Rollback
+      setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, progress: initialProgress } : p));
+      toast({ title: 'Update failed', description: 'Could not save progress', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+      setDrawerOpen(false);
+      setCurrentProjectId(null);
+    }
   };
 
   return (
@@ -146,7 +199,7 @@ const ProgressTracker: React.FC = () => {
 
         {/* Projects Progress */}
         <div className="space-y-4">
-          {mockProjects.map((project, index) => {
+          {projects.map((project, index) => {
             const colors = getProgressColor(project.progress);
             const status = getProgressStatus(project.progress);
 
@@ -174,7 +227,7 @@ const ProgressTracker: React.FC = () => {
                         </div>
                         <CardTitle className="text-xl">{project.name}</CardTitle>
                       </div>
-                      <Button size="sm" variant="outline" className="gap-2">
+                      <Button size="sm" variant="outline" className="gap-2" onClick={() => openDrawerFor(project.id)} disabled={saving}>
                         <Edit className="h-4 w-4" />
                         Update Progress
                       </Button>
@@ -187,12 +240,7 @@ const ProgressTracker: React.FC = () => {
                         <span className="text-sm font-medium text-muted-foreground">Overall Progress</span>
                         <span className={`text-2xl font-bold ${colors.text}`}>{project.progress}%</span>
                       </div>
-                      <div className="h-4 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${colors.bar} transition-all duration-500`}
-                          style={{ width: `${project.progress}%` }}
-                        />
-                      </div>
+                      <ProgressBar value={project.progress} />
                     </div>
 
                     {/* Team & Status Info */}
@@ -248,6 +296,15 @@ const ProgressTracker: React.FC = () => {
             );
           })}
         </div>
+        <UpdateProgressDrawer
+          isOpen={drawerOpen}
+          initialValue={initialProgress}
+          onClose={closeDrawer}
+          onSave={handleSave}
+          onPreviewChange={handlePreviewChange}
+          saving={saving}
+          title={currentProject ? `Update Progress — ${currentProject.name}` : 'Update Progress'}
+        />
       </motion.div>
     </DMSLayout>
   );
