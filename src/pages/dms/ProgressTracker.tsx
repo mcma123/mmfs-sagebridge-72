@@ -46,9 +46,26 @@ const ProgressTracker: React.FC = () => {
   ];
 
   const getProgressColor = (progress: number) => {
-    if (progress >= 80) return { bar: 'bg-green-500', text: 'text-green-600', badge: 'bg-green-100 text-green-800' };
-    if (progress >= 40) return { bar: 'bg-yellow-500', text: 'text-yellow-600', badge: 'bg-yellow-100 text-yellow-800' };
-    return { bar: 'bg-red-500', text: 'text-red-600', badge: 'bg-red-100 text-red-800' };
+    if (progress >= 80)
+      return {
+        bar: 'bg-emerald-500 dark:brightness-110',
+        text: 'text-emerald-600',
+        badge: 'bg-emerald-100 text-emerald-800',
+        borderClass: 'border-emerald-500 dark:brightness-110',
+      };
+    if (progress >= 40)
+      return {
+        bar: 'bg-amber-500 dark:brightness-110',
+        text: 'text-amber-600',
+        badge: 'bg-amber-100 text-amber-800',
+        borderClass: 'border-amber-500 dark:brightness-110',
+      };
+    return {
+      bar: 'bg-rose-500 dark:brightness-110',
+      text: 'text-rose-600',
+      badge: 'bg-rose-100 text-rose-800',
+      borderClass: 'border-rose-500 dark:brightness-110',
+    };
   };
 
   const getProgressStatus = (progress: number) => {
@@ -140,7 +157,7 @@ const ProgressTracker: React.FC = () => {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.1 }}
               >
-                <Card className="border-l-4" style={{ borderLeftColor: colors.bar.replace('bg-', '#') }}>
+                <Card className={`border-l-4 ${colors.borderClass}`}>
                   <CardHeader>
                     <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                       <div className="flex-1">
@@ -151,7 +168,7 @@ const ProgressTracker: React.FC = () => {
                           <Badge className={colors.badge}>
                             {status}
                           </Badge>
-                          <Badge variant="outline" className="bg-primary/10 text-primary">
+                          <Badge variant="outline" className="bg-secondary text-secondary-foreground">
                             {project.stage}
                           </Badge>
                         </div>
@@ -170,7 +187,7 @@ const ProgressTracker: React.FC = () => {
                         <span className="text-sm font-medium text-muted-foreground">Overall Progress</span>
                         <span className={`text-2xl font-bold ${colors.text}`}>{project.progress}%</span>
                       </div>
-                      <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="h-4 bg-muted rounded-full overflow-hidden">
                         <div
                           className={`h-full ${colors.bar} transition-all duration-500`}
                           style={{ width: `${project.progress}%` }}
@@ -184,8 +201,8 @@ const ProgressTracker: React.FC = () => {
                         <p className="text-sm text-muted-foreground mb-2">Team Members</p>
                         <div className="flex -space-x-2">
                           {project.team.map((member, i) => (
-                            <Avatar key={i} className="border-2 border-white">
-                              <AvatarFallback className="bg-primary text-white text-xs">
+                            <Avatar key={i} className="border-2 border-border">
+                              <AvatarFallback className="bg-primary text-primary-foreground text-xs">
                                 {member}
                               </AvatarFallback>
                             </Avatar>

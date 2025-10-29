@@ -54,16 +54,16 @@ const DMSLogin: React.FC = () => {
             animate={{ scale: 1 }}
             transition={{ duration: 0.5 }}
           />
-          <h1 className="text-3xl font-bold text-white mb-2">Document Management System</h1>
-          <p className="text-white/80">Sign in to access your projects</p>
+          <h1 className="text-3xl font-bold text-primary-foreground mb-2">Document Management System</h1>
+          <p className="text-primary-foreground/80">Sign in to access your projects</p>
         </div>
 
-        <Card className="shadow-2xl border-0">
+        <Card className="shadow-2xl">
           <div className="h-2 bg-gradient-to-r from-secondary via-secondary/90 to-secondary/80"></div>
           <CardHeader className="space-y-1">
             <div className="flex items-center gap-2">
               <div className="p-2 rounded-lg bg-gradient-to-br from-secondary to-secondary/80">
-                <FileText className="h-5 w-5 text-white" />
+                <FileText className="h-5 w-5 text-secondary-foreground" />
               </div>
               <CardTitle className="text-2xl font-bold text-primary">Sign In</CardTitle>
             </div>
@@ -114,7 +114,7 @@ const DMSLogin: React.FC = () => {
 
               <Button
                 type="submit"
-                className="w-full bg-secondary hover:bg-secondary/90 text-white shadow-lg"
+                className="w-full bg-secondary hover:bg-secondary/90 text-secondary-foreground shadow-lg"
               >
                 Sign In
               </Button>

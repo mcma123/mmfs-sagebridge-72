@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import DMSLayout from '@/components/layout/DMSLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,14 +7,17 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Plus, FileText, CheckSquare, Phone, DollarSign, Mail, AlertCircle } from 'lucide-react';
+import SlideOutPanel from '@/components/ui/slide-out-panel';
+import NewTaskForm, { TaskFormData } from '@/components/dms/NewTaskForm';
+import { toast } from '@/hooks/use-toast';
 
 const Tasks: React.FC = () => {
   const taskTypes = [
-    { icon: FileText, label: 'Upload Document', color: 'text-blue-600' },
-    { icon: CheckSquare, label: 'Review & Approve', color: 'text-green-600' },
-    { icon: Phone, label: 'Follow-up Action', color: 'text-purple-600' },
-    { icon: DollarSign, label: 'Financial Task', color: 'text-yellow-600' },
-    { icon: Mail, label: 'Send Communication', color: 'text-indigo-600' },
+    { icon: FileText, label: 'Upload Document', color: 'text-blue-600 dark:brightness-110' },
+    { icon: CheckSquare, label: 'Review & Approve', color: 'text-green-600 dark:brightness-110' },
+    { icon: Phone, label: 'Follow-up Action', color: 'text-purple-600 dark:brightness-110' },
+    { icon: DollarSign, label: 'Financial Task', color: 'text-yellow-600 dark:brightness-110' },
+    { icon: Mail, label: 'Send Communication', color: 'text-indigo-600 dark:brightness-110' },
   ];
 
   const mockTasks = {
@@ -83,16 +86,86 @@ const Tasks: React.FC = () => {
     ],
   };
 
+  // Local state for tasks and panel visibility
+  const [tasks, setTasks] = useState(mockTasks);
+  const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
+
+  // Options derived from existing mock data
+  const assigneeOptions = useMemo(() => {
+    const names = new Set<string>();
+    Object.values(tasks).forEach((arr: any) => {
+      (arr as any[]).forEach(t => names.add(t.assignee));
+    });
+    return Array.from(names);
+  }, [tasks]);
+
+  const projectOptions = useMemo(() => {
+    const projects = new Set<string>();
+    Object.values(tasks).forEach((arr: any) => {
+      (arr as any[]).forEach(t => projects.add(t.project));
+    });
+    return Array.from(projects);
+  }, [tasks]);
+
+  const classifySection = (dueDateStr: string) => {
+    const today = new Date();
+    const due = new Date(dueDateStr);
+    // Normalize to date-only
+    const normalize = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const nToday = normalize(today);
+    const nDue = normalize(due);
+
+    if (nDue.getTime() < nToday.getTime()) return 'overdue' as const;
+    if (nDue.getTime() === nToday.getTime()) return 'dueToday' as const;
+
+    // Week range: Monday to Sunday of current week
+    const day = nToday.getDay();
+    const monday = new Date(nToday);
+    monday.setDate(nToday.getDate() - ((day + 6) % 7));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    if (nDue.getTime() >= monday.getTime() && nDue.getTime() <= sunday.getTime()) {
+      return 'dueThisWeek' as const;
+    }
+    // If outside current week and not overdue/today, we still bucket into dueThisWeek for visibility
+    return 'dueThisWeek' as const;
+  };
+
+  const handleCreateTask = (data: TaskFormData) => {
+    const newTask = {
+      id: Date.now(),
+      title: data.taskTitle,
+      project: data.projectReference,
+      assignee: data.assignedTo,
+      dueDate: data.dueDate,
+      priority: data.priority,
+      type: data.taskType,
+    };
+
+    const section = classifySection(data.dueDate);
+    setTasks(prev => ({
+      ...prev,
+      [section]: [newTask, ...prev[section as keyof typeof prev] as any[]],
+    }));
+
+    toast({
+      title: 'Task created',
+      description: `The task was added to "${section}"`,
+    });
+    setIsNewTaskOpen(false);
+  };
+
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'High':
-        return 'bg-red-100 text-red-800 border-red-200';
+        return 'bg-red-100 text-red-800 border-red-200 dark:brightness-110';
       case 'Medium':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:brightness-110';
       case 'Low':
-        return 'bg-green-100 text-green-800 border-green-200';
+        return 'bg-green-100 text-green-800 border-green-200 dark:brightness-110';
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+        return 'bg-muted text-muted-foreground border-border';
     }
   };
 
@@ -105,8 +178,8 @@ const Tasks: React.FC = () => {
   const TaskCard = ({ task, section }: { task: any; section: string }) => {
     const Icon = getTypeIcon(task.type);
     return (
-      <div className={`flex items-start gap-4 p-4 border rounded-lg hover:shadow-md transition-all ${
-        section === 'overdue' ? 'border-l-4 border-l-red-500 bg-red-50' : 'bg-white'
+      <div className={`flex items-start gap-4 p-4 border rounded-lg hover:shadow-md transition-all bg-card text-card-foreground border-border ${
+        section === 'overdue' ? 'border-l-4 border-l-rose-500 dark:brightness-110' : ''
       }`}>
         <Checkbox className="mt-1" />
         <div className="flex-1 min-w-0">
@@ -128,13 +201,13 @@ const Tasks: React.FC = () => {
             {task.completedDate && (
               <>
                 <span>•</span>
-                <span className="text-green-600">Completed: {task.completedDate}</span>
+                <span className="text-green-600 dark:brightness-110">Completed: {task.completedDate}</span>
               </>
             )}
           </div>
         </div>
         <Avatar className="h-8 w-8">
-          <AvatarFallback className="bg-primary text-white text-xs">
+          <AvatarFallback className="bg-primary text-primary-foreground text-xs">
             {task.assignee}
           </AvatarFallback>
         </Avatar>
@@ -156,11 +229,20 @@ const Tasks: React.FC = () => {
             <h1 className="text-3xl font-bold text-primary">Task Board</h1>
             <p className="text-muted-foreground mt-1">Manage tasks across all projects</p>
           </div>
-          <Button className="bg-secondary hover:bg-secondary/90 gap-2">
+          <Button className="bg-secondary hover:bg-secondary/90 gap-2" onClick={() => setIsNewTaskOpen(true)}>
             <Plus className="h-4 w-4" />
             New Task
           </Button>
         </div>
+
+        <SlideOutPanel title="New Task" open={isNewTaskOpen} onOpenChange={setIsNewTaskOpen}>
+          <NewTaskForm
+            onCreate={handleCreateTask}
+            onCancel={() => setIsNewTaskOpen(false)}
+            assigneeOptions={assigneeOptions}
+            projectOptions={projectOptions}
+          />
+        </SlideOutPanel>
 
         {/* Task Type Legend */}
         <Card>
@@ -180,16 +262,16 @@ const Tasks: React.FC = () => {
         </Card>
 
         {/* Overdue Tasks */}
-        {mockTasks.overdue.length > 0 && (
-          <Card className="border-red-200">
-            <CardHeader className="bg-red-50">
+        {tasks.overdue.length > 0 && (
+          <Card className="border-border">
+            <CardHeader className="bg-muted">
               <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-red-600" />
-                <CardTitle className="text-red-900">Overdue ({mockTasks.overdue.length})</CardTitle>
+                <AlertCircle className="h-5 w-5 text-rose-600 dark:brightness-110" />
+                <CardTitle className="text-foreground">Overdue ({tasks.overdue.length})</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="pt-6 space-y-3">
-              {mockTasks.overdue.map((task, index) => (
+              {tasks.overdue.map((task, index) => (
                 <motion.div
                   key={task.id}
                   initial={{ opacity: 0, x: -20 }}
@@ -205,11 +287,11 @@ const Tasks: React.FC = () => {
 
         {/* Due Today */}
         <Card>
-          <CardHeader className="bg-yellow-50">
-            <CardTitle className="text-yellow-900">Due Today ({mockTasks.dueToday.length})</CardTitle>
+          <CardHeader className="bg-muted">
+            <CardTitle className="text-foreground">Due Today ({tasks.dueToday.length})</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-3">
-            {mockTasks.dueToday.map((task, index) => (
+            {tasks.dueToday.map((task, index) => (
               <motion.div
                 key={task.id}
                 initial={{ opacity: 0, x: -20 }}
@@ -224,11 +306,11 @@ const Tasks: React.FC = () => {
 
         {/* Due This Week */}
         <Card>
-          <CardHeader className="bg-blue-50">
-            <CardTitle className="text-blue-900">Due This Week ({mockTasks.dueThisWeek.length})</CardTitle>
+          <CardHeader className="bg-muted">
+            <CardTitle className="text-foreground">Due This Week ({tasks.dueThisWeek.length})</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-3">
-            {mockTasks.dueThisWeek.map((task, index) => (
+            {tasks.dueThisWeek.map((task, index) => (
               <motion.div
                 key={task.id}
                 initial={{ opacity: 0, x: -20 }}
@@ -243,11 +325,11 @@ const Tasks: React.FC = () => {
 
         {/* Completed */}
         <Card>
-          <CardHeader className="bg-green-50">
-            <CardTitle className="text-green-900">Completed ({mockTasks.completed.length})</CardTitle>
+          <CardHeader className="bg-muted">
+            <CardTitle className="text-foreground">Completed ({tasks.completed.length})</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-3">
-            {mockTasks.completed.map((task, index) => (
+            {tasks.completed.map((task, index) => (
               <motion.div
                 key={task.id}
                 initial={{ opacity: 0, x: -20 }}

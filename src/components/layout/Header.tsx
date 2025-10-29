@@ -68,7 +68,7 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar, sidebarCollapsed }) => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
               transition={{ duration: 0.2 }}
-              className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg py-2 z-50 border border-border"
+              className="absolute right-0 mt-2 w-80 bg-card text-card-foreground rounded-lg shadow-lg py-2 z-50 border border-border"
             >
               <div className="px-4 py-2 border-b border-border">
                 <h4 className="font-medium">Notifications</h4>
@@ -115,7 +115,7 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar, sidebarCollapsed }) => {
             onClick={() => setShowProfile(!showProfile)}
             className="flex items-center gap-2 hover:bg-sage-lightGray rounded-full transition-colors pl-1 pr-2 py-1"
           >
-            <div className="w-8 h-8 bg-sage-blue rounded-full flex items-center justify-center text-white">
+            <div className="w-8 h-8 bg-sage-blue rounded-full flex items-center justify-center text-primary-foreground">
               <User size={16} />
             </div>
             <div className="hidden md:block text-left">
@@ -131,7 +131,7 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar, sidebarCollapsed }) => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
               transition={{ duration: 0.2 }}
-              className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50 border border-border"
+              className="absolute right-0 mt-2 w-48 bg-card text-card-foreground rounded-lg shadow-lg py-2 z-50 border border-border"
             >
               <div className="px-4 py-2 border-b border-border">
                 <p className="font-medium text-sm">John Doe</p>
