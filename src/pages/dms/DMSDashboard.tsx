@@ -15,7 +15,7 @@ const DMSDashboard: React.FC = () => {
       icon: FolderKanban,
       route: '/dms/projects',
       stats: { label: 'Active Projects', value: '3' },
-      gradient: 'from-blue-500 to-blue-600',
+      gradient: 'from-primary to-primary/90',
     },
     {
       title: 'Progress Tracker',
@@ -23,7 +23,7 @@ const DMSDashboard: React.FC = () => {
       icon: TrendingUp,
       route: '/dms/progress',
       stats: { label: 'On Track', value: '75%' },
-      gradient: 'from-green-500 to-green-600',
+      gradient: 'from-primary to-primary/90',
       featured: true,
     },
     {
@@ -32,7 +32,7 @@ const DMSDashboard: React.FC = () => {
       icon: FileText,
       route: '/dms/documents',
       stats: { label: 'Total Documents', value: '85' },
-      gradient: 'from-purple-500 to-purple-600',
+      gradient: 'from-primary to-primary/90',
     },
     {
       title: 'Task Board',
@@ -40,7 +40,7 @@ const DMSDashboard: React.FC = () => {
       icon: CheckSquare,
       route: '/dms/tasks',
       stats: { label: 'Pending Tasks', value: '7' },
-      gradient: 'from-orange-500 to-orange-600',
+      gradient: 'from-primary to-primary/90',
     },
   ];
 
@@ -82,7 +82,7 @@ const DMSDashboard: React.FC = () => {
                   <CardHeader className="pb-4">
                     <div className="flex items-start justify-between mb-4">
                       <div className={`p-4 rounded-xl bg-gradient-to-br ${module.gradient} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                        <Icon className="h-8 w-8 text-white" />
+                        <Icon className="h-8 w-8 text-primary-foreground" />
                       </div>
                       {module.featured && (
                         <span className="px-3 py-1 text-xs font-bold text-secondary bg-secondary/10 rounded-full">
@@ -99,7 +99,7 @@ const DMSDashboard: React.FC = () => {
                   </CardHeader>
                   
                   <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                    <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
                       <div>
                         <p className="text-sm text-muted-foreground">{module.stats.label}</p>
                         <p className="text-3xl font-bold text-primary">{module.stats.value}</p>
@@ -118,26 +118,26 @@ const DMSDashboard: React.FC = () => {
         </div>
 
         {/* Quick Stats */}
-        <Card className="bg-gradient-to-br from-primary to-primary/90 text-white border-0">
+        <Card className="bg-gradient-to-br from-primary to-primary/90 text-primary-foreground border-0">
           <CardHeader>
-            <CardTitle className="text-white">System Overview</CardTitle>
+            <CardTitle className="text-primary-foreground">System Overview</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               <div>
-                <p className="text-white/70 text-sm">Total Projects</p>
+                <p className="text-primary-foreground/70 text-sm">Total Projects</p>
                 <p className="text-4xl font-bold">12</p>
               </div>
               <div>
-                <p className="text-white/70 text-sm">Documents</p>
+                <p className="text-primary-foreground/70 text-sm">Documents</p>
                 <p className="text-4xl font-bold">85</p>
               </div>
               <div>
-                <p className="text-white/70 text-sm">Active Tasks</p>
+                <p className="text-primary-foreground/70 text-sm">Active Tasks</p>
                 <p className="text-4xl font-bold">7</p>
               </div>
               <div>
-                <p className="text-white/70 text-sm">Team Members</p>
+                <p className="text-primary-foreground/70 text-sm">Team Members</p>
                 <p className="text-4xl font-bold">5</p>
               </div>
             </div>

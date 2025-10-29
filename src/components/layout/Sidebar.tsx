@@ -69,13 +69,13 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
             exit={{ opacity: 0 }}
             className="flex items-center gap-2"
           >
-            <div className="w-8 h-8 rounded-md bg-white flex items-center justify-center">
+            <div className="w-8 h-8 rounded-md bg-card text-card-foreground flex items-center justify-center border border-border">
               <span className="text-[hsl(var(--sidebar-background))] font-bold text-xl">M</span>
             </div>
             <span className="font-semibold text-[hsl(var(--sidebar-foreground))] text-lg">MMFS</span>
           </motion.div>
         ) : (
-          <div className="w-8 h-8 rounded-md bg-white mx-auto flex items-center justify-center">
+          <div className="w-8 h-8 rounded-md bg-card text-card-foreground mx-auto flex items-center justify-center border border-border">
             <span className="text-[hsl(var(--sidebar-background))] font-bold text-xl">M</span>
           </div>
         )}

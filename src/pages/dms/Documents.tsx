@@ -12,14 +12,14 @@ const Documents: React.FC = () => {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
 
   const folders = [
-    { id: '01', name: '01_Submission', count: 12, color: 'bg-blue-500' },
-    { id: '02', name: '02_Marketing', count: 8, color: 'bg-purple-500' },
-    { id: '03', name: '03_Quotations', count: 15, color: 'bg-green-500' },
-    { id: '04', name: '04_Binding', count: 6, color: 'bg-yellow-500' },
-    { id: '05', name: '05_Contracts', count: 10, color: 'bg-red-500' },
-    { id: '06', name: '06_Premium', count: 7, color: 'bg-indigo-500' },
-    { id: '07', name: '07_Claims', count: 3, color: 'bg-pink-500' },
-    { id: '08', name: '08_Correspondence', count: 24, color: 'bg-orange-500' },
+    { id: '01', name: '01_Submission', count: 12, color: 'bg-blue-500 dark:brightness-110' },
+    { id: '02', name: '02_Marketing', count: 8, color: 'bg-purple-500 dark:brightness-110' },
+    { id: '03', name: '03_Quotations', count: 15, color: 'bg-green-500 dark:brightness-110' },
+    { id: '04', name: '04_Binding', count: 6, color: 'bg-yellow-500 dark:brightness-110' },
+    { id: '05', name: '05_Contracts', count: 10, color: 'bg-red-500 dark:brightness-110' },
+    { id: '06', name: '06_Premium', count: 7, color: 'bg-indigo-500 dark:brightness-110' },
+    { id: '07', name: '07_Claims', count: 3, color: 'bg-pink-500 dark:brightness-110' },
+    { id: '08', name: '08_Correspondence', count: 24, color: 'bg-orange-500 dark:brightness-110' },
   ];
 
   const mockDocuments = [
@@ -68,13 +68,13 @@ const Documents: React.FC = () => {
   const getFileColor = (type: string) => {
     switch (type.toLowerCase()) {
       case 'pdf':
-        return 'text-red-600';
+        return 'text-red-600 dark:brightness-110';
       case 'excel':
-        return 'text-green-600';
+        return 'text-green-600 dark:brightness-110';
       case 'word':
-        return 'text-blue-600';
+        return 'text-blue-600 dark:brightness-110';
       default:
-        return 'text-gray-600';
+        return 'text-gray-600 dark:brightness-110';
     }
   };
 
@@ -92,7 +92,7 @@ const Documents: React.FC = () => {
             <h1 className="text-3xl font-bold text-primary">Document Management</h1>
             <p className="text-muted-foreground mt-1">Organize and manage project documents</p>
           </div>
-          <Button className="bg-secondary hover:bg-secondary/90 gap-2">
+          <Button className="bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2">
             <Upload className="h-4 w-4" />
             Upload Document
           </Button>
@@ -134,7 +134,7 @@ const Documents: React.FC = () => {
                     onClick={() => setSelectedFolder(folder.id)}
                     className={`w-full flex items-center justify-between p-3 rounded-lg transition-all ${
                       selectedFolder === folder.id
-                        ? 'bg-secondary text-white'
+                        ? 'bg-secondary text-secondary-foreground'
                         : 'hover:bg-muted'
                     }`}
                   >
@@ -165,7 +165,7 @@ const Documents: React.FC = () => {
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: index * 0.1 }}
-                      className="flex items-center justify-between p-4 border rounded-lg hover:shadow-md transition-shadow"
+                      className="flex items-center justify-between p-4 border border-border rounded-lg hover:shadow-md transition-shadow bg-card text-card-foreground"
                     >
                       <div className="flex items-center gap-4 flex-1">
                         <div className={getFileColor(doc.type)}>
@@ -183,7 +183,7 @@ const Documents: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <Avatar className="h-8 w-8">
-                            <AvatarFallback className="bg-primary text-white text-xs">
+                            <AvatarFallback className="bg-primary text-primary-foreground text-xs">
                               {doc.uploadedBy}
                             </AvatarFallback>
                           </Avatar>
@@ -197,7 +197,7 @@ const Documents: React.FC = () => {
                           <Download className="h-4 w-4" />
                         </Button>
                         <Button size="icon" variant="ghost">
-                          <Trash2 className="h-4 w-4 text-red-500" />
+                          <Trash2 className="h-4 w-4 text-red-500 dark:brightness-110" />
                         </Button>
                       </div>
                     </motion.div>

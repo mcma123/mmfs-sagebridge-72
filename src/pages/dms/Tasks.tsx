@@ -13,11 +13,11 @@ import { toast } from '@/hooks/use-toast';
 
 const Tasks: React.FC = () => {
   const taskTypes = [
-    { icon: FileText, label: 'Upload Document', color: 'text-blue-600' },
-    { icon: CheckSquare, label: 'Review & Approve', color: 'text-green-600' },
-    { icon: Phone, label: 'Follow-up Action', color: 'text-purple-600' },
-    { icon: DollarSign, label: 'Financial Task', color: 'text-yellow-600' },
-    { icon: Mail, label: 'Send Communication', color: 'text-indigo-600' },
+    { icon: FileText, label: 'Upload Document', color: 'text-blue-600 dark:brightness-110' },
+    { icon: CheckSquare, label: 'Review & Approve', color: 'text-green-600 dark:brightness-110' },
+    { icon: Phone, label: 'Follow-up Action', color: 'text-purple-600 dark:brightness-110' },
+    { icon: DollarSign, label: 'Financial Task', color: 'text-yellow-600 dark:brightness-110' },
+    { icon: Mail, label: 'Send Communication', color: 'text-indigo-600 dark:brightness-110' },
   ];
 
   const mockTasks = {
@@ -159,13 +159,13 @@ const Tasks: React.FC = () => {
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'High':
-        return 'bg-red-100 text-red-800 border-red-200';
+        return 'bg-red-100 text-red-800 border-red-200 dark:brightness-110';
       case 'Medium':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:brightness-110';
       case 'Low':
-        return 'bg-green-100 text-green-800 border-green-200';
+        return 'bg-green-100 text-green-800 border-green-200 dark:brightness-110';
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+        return 'bg-muted text-muted-foreground border-border';
     }
   };
 
@@ -178,8 +178,8 @@ const Tasks: React.FC = () => {
   const TaskCard = ({ task, section }: { task: any; section: string }) => {
     const Icon = getTypeIcon(task.type);
     return (
-      <div className={`flex items-start gap-4 p-4 border rounded-lg hover:shadow-md transition-all ${
-        section === 'overdue' ? 'border-l-4 border-l-red-500 bg-red-50' : 'bg-white'
+      <div className={`flex items-start gap-4 p-4 border rounded-lg hover:shadow-md transition-all bg-card text-card-foreground border-border ${
+        section === 'overdue' ? 'border-l-4 border-l-rose-500 dark:brightness-110' : ''
       }`}>
         <Checkbox className="mt-1" />
         <div className="flex-1 min-w-0">
@@ -201,13 +201,13 @@ const Tasks: React.FC = () => {
             {task.completedDate && (
               <>
                 <span>•</span>
-                <span className="text-green-600">Completed: {task.completedDate}</span>
+                <span className="text-green-600 dark:brightness-110">Completed: {task.completedDate}</span>
               </>
             )}
           </div>
         </div>
         <Avatar className="h-8 w-8">
-          <AvatarFallback className="bg-primary text-white text-xs">
+          <AvatarFallback className="bg-primary text-primary-foreground text-xs">
             {task.assignee}
           </AvatarFallback>
         </Avatar>
@@ -263,11 +263,11 @@ const Tasks: React.FC = () => {
 
         {/* Overdue Tasks */}
         {tasks.overdue.length > 0 && (
-          <Card className="border-red-200">
-            <CardHeader className="bg-red-50">
+          <Card className="border-border">
+            <CardHeader className="bg-muted">
               <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-red-600" />
-                <CardTitle className="text-red-900">Overdue ({tasks.overdue.length})</CardTitle>
+                <AlertCircle className="h-5 w-5 text-rose-600 dark:brightness-110" />
+                <CardTitle className="text-foreground">Overdue ({tasks.overdue.length})</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="pt-6 space-y-3">
@@ -287,8 +287,8 @@ const Tasks: React.FC = () => {
 
         {/* Due Today */}
         <Card>
-          <CardHeader className="bg-yellow-50">
-            <CardTitle className="text-yellow-900">Due Today ({tasks.dueToday.length})</CardTitle>
+          <CardHeader className="bg-muted">
+            <CardTitle className="text-foreground">Due Today ({tasks.dueToday.length})</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-3">
             {tasks.dueToday.map((task, index) => (
@@ -306,8 +306,8 @@ const Tasks: React.FC = () => {
 
         {/* Due This Week */}
         <Card>
-          <CardHeader className="bg-blue-50">
-            <CardTitle className="text-blue-900">Due This Week ({tasks.dueThisWeek.length})</CardTitle>
+          <CardHeader className="bg-muted">
+            <CardTitle className="text-foreground">Due This Week ({tasks.dueThisWeek.length})</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-3">
             {tasks.dueThisWeek.map((task, index) => (
@@ -325,8 +325,8 @@ const Tasks: React.FC = () => {
 
         {/* Completed */}
         <Card>
-          <CardHeader className="bg-green-50">
-            <CardTitle className="text-green-900">Completed ({tasks.completed.length})</CardTitle>
+          <CardHeader className="bg-muted">
+            <CardTitle className="text-foreground">Completed ({tasks.completed.length})</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-3">
             {tasks.completed.map((task, index) => (
