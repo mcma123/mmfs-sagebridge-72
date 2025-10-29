@@ -166,14 +166,21 @@ const Projects: React.FC = () => {
                       </Badge>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Badge className={getStatusColor(project.status)}>
+                          <Badge
+                            className={getStatusColor(project.status)}
+                            aria-label={`Project status: ${project.status}`}
+                            title={`Change status for ${project.name}`}
+                            role="button"
+                            tabIndex={0}
+                          >
                             {project.status}
                           </Badge>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                              {['Active','Pending Approval','In Progress','Done','Cancelled'].map((s) => (
+                              {['Draft','Active','Pending Approval','In Progress','Done','Cancelled'].map((s) => (
                                 <DropdownMenuItem
                                   key={s}
+                                  aria-label={`Set status to ${s}`}
                                   onClick={async () => {
                                     const prev = project.status;
                                     updateStatus(project.id, s as any);
@@ -315,12 +322,21 @@ const Projects: React.FC = () => {
                         <td className="px-4 py-3">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Badge className={getStatusColor(project.status)}>{project.status}</Badge>
+                              <Badge
+                                className={getStatusColor(project.status)}
+                                aria-label={`Project status: ${project.status}`}
+                                title={`Change status for ${project.name}`}
+                                role="button"
+                                tabIndex={0}
+                              >
+                                {project.status}
+                              </Badge>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              {['Active','Pending Approval','In Progress','Done','Cancelled'].map((s) => (
+                              {['Draft','Active','Pending Approval','In Progress','Done','Cancelled'].map((s) => (
                             <DropdownMenuItem
                               key={s}
+                              aria-label={`Set status to ${s}`}
                               onClick={async () => {
                                 const prev = project.status;
                                 updateStatus(project.id, s as any);

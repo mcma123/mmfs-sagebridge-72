@@ -59,7 +59,7 @@ export default function NewProjectForm({ onCreate, onCancel }: { onCreate: (data
       currency: undefined as any,
       startDate: "",
       endDate: "",
-      status: undefined as any,
+      status: "Active" as any,
       description: "",
       assignedTeamText: "",
       priority: undefined as any,

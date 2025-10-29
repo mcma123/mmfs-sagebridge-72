@@ -8,13 +8,13 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { TrendingUp, Clock, AlertCircle, Users, Edit } from 'lucide-react';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { UpdateProgressDrawer } from '@/components/ui/UpdateProgressDrawer';
-import { updateProjectProgress } from '@/lib/api/projects';
+import { updateProjectProgress, updateProjectStatus } from '@/lib/api/projects';
 import { useToast } from '@/hooks/use-toast';
 import { useProjects } from '@/lib/store/projects';
 
 const ProgressTracker: React.FC = () => {
   const { toast } = useToast();
-  const { projects, updateProgress, addNote } = useProjects();
+  const { projects, updateProgress, updateStatus, addNote } = useProjects();
   // Local preview overrides so adjusting the slider live-updates UI without mutating the shared store
   const [previewProgress, setPreviewProgress] = useState<Record<string, number>>({});
 
@@ -22,6 +22,7 @@ const ProgressTracker: React.FC = () => {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [initialProgress, setInitialProgress] = useState<number>(0);
   const [saving, setSaving] = useState(false);
+  const [initialStatus, setInitialStatus] = useState<import('@/lib/store/projects').ProjectStatus | null>(null);
 
   const currentProject = useMemo(() => projects.find(p => p.id === currentProjectId) || null, [projects, currentProjectId]);
 
@@ -60,6 +61,7 @@ const ProgressTracker: React.FC = () => {
     const effective = previewProgress[projectId] ?? proj.progress;
     setCurrentProjectId(projectId);
     setInitialProgress(effective);
+    setInitialStatus(proj.status);
     setDrawerOpen(true);
   };
 
@@ -74,6 +76,7 @@ const ProgressTracker: React.FC = () => {
     }
     setDrawerOpen(false);
     setCurrentProjectId(null);
+    setInitialStatus(null);
   };
 
   const handlePreviewChange = (value: number) => {
@@ -82,20 +85,61 @@ const ProgressTracker: React.FC = () => {
     setPreviewProgress((prev) => ({ ...prev, [currentProjectId!]: clamped }));
   };
 
-  const handleSave = async (newValue: number, note?: string) => {
+  const handleSave = async (newValue: number, note?: string, status?: import('@/lib/store/projects').ProjectStatus) => {
     if (currentProjectId === null) return;
     if (newValue === initialProgress) { closeDrawer(); return; }
     try {
       setSaving(true);
-      // Optimistic: commit to store immediately
-      updateProgress(currentProjectId, newValue);
+      const prevStatus = initialStatus ?? projects.find(p => p.id === currentProjectId)?.status;
+      const prevProgress = initialProgress;
+
+      let statusOk = true;
+      let progressOk = true;
+
+      // If status changed, optimistic update and persist
+      if (status && prevStatus && status !== prevStatus) {
+        updateStatus(currentProjectId, status);
+        try {
+          await updateProjectStatus(currentProjectId, status);
+        } catch (e) {
+          statusOk = false;
+          updateStatus(currentProjectId, prevStatus);
+          toast({ title: 'Status update failed', description: 'Could not change status', variant: 'destructive' });
+        }
+      }
+
+      // Progress update (even if status forces an adjustment, we still call API with requested value)
+      if (newValue !== prevProgress) {
+        updateProgress(currentProjectId, newValue);
+        try {
+          await updateProjectProgress(currentProjectId, newValue, note);
+        } catch (e) {
+          progressOk = false;
+          updateProgress(currentProjectId, prevProgress);
+          toast({ title: 'Progress update failed', description: 'Could not save progress', variant: 'destructive' });
+        }
+      } else if (note && note.trim()) {
+        // Persist note even if progress unchanged
+        try {
+          await updateProjectProgress(currentProjectId, prevProgress, note);
+        } catch (e) {
+          // API failed to persist note; still keep it locally for now
+        }
+      }
+
       if (note && note.trim()) addNote(currentProjectId, note.trim());
-      await updateProjectProgress(currentProjectId, newValue, note);
-      toast({ title: 'Progress updated', description: `Project is now at ${newValue}%` });
+
+      if (statusOk || progressOk) {
+        const msgParts = [] as string[];
+        if (status && prevStatus && status !== prevStatus && statusOk) msgParts.push(`Status → ${status}`);
+        if (newValue !== prevProgress && progressOk) msgParts.push(`Progress → ${newValue}%`);
+        toast({ title: 'Update saved', description: msgParts.join(' • ') || 'No changes' });
+      }
     } catch (e) {
-      // Rollback to initial on error
+      // General failure safety net
       updateProgress(currentProjectId, initialProgress);
-      toast({ title: 'Update failed', description: 'Could not save progress', variant: 'destructive' });
+      if (initialStatus) updateStatus(currentProjectId, initialStatus);
+      toast({ title: 'Update failed', description: 'Could not save updates', variant: 'destructive' });
     } finally {
       setSaving(false);
       setDrawerOpen(false);
@@ -106,6 +150,7 @@ const ProgressTracker: React.FC = () => {
         return next;
       });
       setCurrentProjectId(null);
+      setInitialStatus(null);
     }
   };
 
@@ -282,6 +327,7 @@ const ProgressTracker: React.FC = () => {
         <UpdateProgressDrawer
           isOpen={drawerOpen}
           initialValue={initialProgress}
+          initialStatus={currentProject?.status ?? 'Active'}
           onClose={closeDrawer}
           onSave={handleSave}
           onPreviewChange={handlePreviewChange}

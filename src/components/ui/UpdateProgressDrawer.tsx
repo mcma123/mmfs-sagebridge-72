@@ -5,10 +5,13 @@ import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { ProjectStatus } from '@/lib/store/projects';
 
 export function UpdateProgressDrawer({
   isOpen,
   initialValue,
+  initialStatus,
   onClose,
   onSave,
   onPreviewChange,
@@ -17,16 +20,19 @@ export function UpdateProgressDrawer({
 }: {
   isOpen: boolean;
   initialValue: number;
+  initialStatus: ProjectStatus;
   onClose: () => void;
-  onSave: (value: number, note?: string) => Promise<void> | void;
+  onSave: (value: number, note?: string, status?: ProjectStatus) => Promise<void> | void;
   onPreviewChange?: (value: number) => void;
   saving?: boolean;
   title?: string;
 }) {
   const [value, setValue] = useState(initialValue);
   const [note, setNote] = useState('');
+  const [status, setStatus] = useState<ProjectStatus>(initialStatus);
 
   useEffect(() => { setValue(initialValue); }, [initialValue]);
+  useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
 
   useEffect(() => {
     if (isOpen && onPreviewChange) onPreviewChange(value);
@@ -35,6 +41,7 @@ export function UpdateProgressDrawer({
 
   const clamped = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
   const hasChanged = clamped !== Math.max(0, Math.min(100, Number.isFinite(initialValue) ? initialValue : 0));
+  const statusChanged = status !== initialStatus;
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -44,9 +51,22 @@ export function UpdateProgressDrawer({
         </SheetHeader>
         <div className="mt-4 space-y-4">
           <div>
-            <Label htmlFor="progress-range">Progress: {clamped}%</Label>
+            <Label id="status-label" htmlFor="status">Status</Label>
+            <Select value={status} onValueChange={(v) => setStatus(v as ProjectStatus)}>
+              <SelectTrigger id="status" aria-label="Project status" aria-labelledby="status-label">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                {(['Draft','Active','Pending Approval','In Progress','Done','Cancelled'] as ProjectStatus[]).map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label id="progress-label" htmlFor="progress-range">Progress: {clamped}%</Label>
             <div className="mt-2">
-              <Slider id="progress-range" value={[clamped]} min={0} max={100} step={1} aria-label="Project progress"
+              <Slider id="progress-range" value={[clamped]} min={0} max={100} step={1} aria-label="Project progress" aria-labelledby="progress-label"
                 onValueChange={(vals) => setValue(vals[0] ?? 0)} />
             </div>
             <div className="mt-3 flex items-center gap-2">
@@ -56,6 +76,8 @@ export function UpdateProgressDrawer({
                        setValue(Number.isFinite(next) ? Math.max(0, Math.min(100, next)) : clamped);
                      }}
                      aria-label="Progress percent"
+                     aria-labelledby="progress-label"
+                     autoFocus
                      className="w-24" />
               <span className="text-muted-foreground">%</span>
             </div>
@@ -66,7 +88,7 @@ export function UpdateProgressDrawer({
           </div>
         </div>
         <SheetFooter className="mt-6">
-          <Button onClick={() => onSave(clamped, note)} disabled={saving || !hasChanged} className="bg-primary text-primary-foreground hover:bg-primary/90">
+          <Button onClick={() => onSave(clamped, note, status)} disabled={saving || (!hasChanged && !statusChanged)} className="bg-primary text-primary-foreground hover:bg-primary/90">
             {saving ? 'Saving…' : 'Save'}
           </Button>
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
