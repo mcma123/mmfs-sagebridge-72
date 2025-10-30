@@ -49,6 +49,7 @@ import Reconciliation from './pages/accounting/Reconciliation';
 import AdjustOpeningBalance from './pages/accounting/AdjustOpeningBalance';
 import TaxReports from './pages/accounting/TaxReports';
 import PeriodEnd from './pages/accounting/PeriodEnd';
+import AccountingDocuments from './pages/accounting/Documents';
 
 const queryClient = new QueryClient();
 
@@ -93,6 +94,8 @@ const App = () => (
               <Route path="/accounting/adjust-opening-balance" element={<AdjustOpeningBalance />} />
               <Route path="/accounting/tax-reports" element={<TaxReports />} />
               <Route path="/accounting/period-end" element={<PeriodEnd />} />
+              <Route path="/accounting/documents" element={<AccountingDocuments />} />
+              <Route path="/accounting/documents/:folderId" element={<AccountingDocuments />} />
               
               {/* DMS Routes */}
               <Route path="/dms/login" element={<DMSLogin />} />

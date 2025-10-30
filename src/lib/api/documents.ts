@@ -4,10 +4,13 @@
 
 export type Role = 'Admin' | 'Editor' | 'Viewer';
 
-const BASE = '/api/v1/documents';
+let API_BASE = '/api/v1/documents';
+export function setDocumentsApiBase(base: string) {
+  API_BASE = base || '/api/v1/documents';
+}
 
 async function apiFetch<T>(path: string, init: RequestInit = {}, role: Role = 'Editor'): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',

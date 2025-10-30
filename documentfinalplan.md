@@ -132,10 +132,7 @@
 
 ## Timeline (Estimate)
 
-- Day 1–2: Store migration, helpers, routes.
-- Day 3: Companies page + dialog.
-- Day 4: Company-scoped explorer.
-- Day 5: Testing, polish, and docs.
+-
 
 ## Notes
 

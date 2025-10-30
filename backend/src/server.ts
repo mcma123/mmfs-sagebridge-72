@@ -10,6 +10,9 @@ app.use(express.json());
 
 app.use('/api/v1/documents', foldersRouter);
 app.use('/api/v1/documents', documentsRouter);
+// Mirror routes for Accounting module under a separate base path
+app.use('/api/v1/accounting/documents', foldersRouter);
+app.use('/api/v1/accounting/documents', documentsRouter);
 
 app.use(errorHandler);
 

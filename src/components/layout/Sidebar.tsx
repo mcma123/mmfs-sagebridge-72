@@ -35,6 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
   
   // Route Dashboard to the active module when inside Accounting
   const dashboardPath = location.pathname.startsWith('/accounting') ? '/accounting' : '/dashboard';
+  // Remove global Documents link from main sidebar; DMS has its own layout
   
   const navigationItems = [
     { name: 'Dashboard', icon: Home, path: dashboardPath },
@@ -42,11 +43,12 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
     { name: 'Debit/Credit Notes', icon: FileText, path: '/debit-credit-notes' },
     { name: 'Payment Reconciliation', icon: CreditCard, path: '/payment-reconciliation' },
     { name: 'Banking', icon: CreditCard, path: '/banking' },
+    // Documents link removed globally from main app sidebar
     { name: 'Accounting', icon: BookOpen, path: '/accounting' },
     { name: 'Reports', icon: PieChart, path: '/reports' },
     { name: 'Administration', icon: Shield, path: '/administration' },
     { name: 'Settings', icon: Settings, path: '/settings' },
-  ];
+  ] as const;
 
   // Sidebar animation variants
   const sidebarVariants = {

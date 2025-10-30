@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { isAccountingDocumentsEnabled } from '@/lib/flags';
 import {
   FileText, 
   BookOpen, 
@@ -21,6 +22,12 @@ import {
 } from 'lucide-react';
 
 const AccountingModules = [
+  {
+    title: "Documents",
+    description: "Store and organize accounting documents",
+    icon: FileText,
+    path: "/accounting/documents",
+  },
   {
     title: "Chart of Accounts",
     description: "Manage your list of accounts and categories",
@@ -89,6 +96,7 @@ const QuickActions = [
 
 const Accounting = () => {
   const navigate = useNavigate();
+  const modulesToShow = AccountingModules.filter((m) => m.path !== '/accounting/documents' || isAccountingDocumentsEnabled());
   
   return (
     <MainLayout>
@@ -130,7 +138,7 @@ const Accounting = () => {
             
             {/* Accounting Modules */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {AccountingModules.map((module) => (
+              {modulesToShow.map((module) => (
                 <Card 
                   key={module.title}
                   className="hover:shadow-md transition-shadow cursor-pointer border-none shadow-sm"

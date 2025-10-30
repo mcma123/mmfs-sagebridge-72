@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import DMSLayout from '@/components/layout/DMSLayout';
+import MainLayout from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,11 +20,12 @@ import {
   getFolder,
   setDocumentsNamespace,
 } from '@/lib/store/documents';
+import { setDocumentsApiBase } from '@/lib/api/documents';
 import { trackEvent } from '@/lib/telemetry';
 
 type Role = 'Admin' | 'Editor' | 'Viewer';
 
-const Documents: React.FC = () => {
+const AccountingDocuments: React.FC = () => {
   const navigate = useNavigate();
   const { folderId: folderIdParam } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -33,8 +34,11 @@ const Documents: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setDocumentsNamespace('dms-documents-store');
-    trackEvent('dms_documents_open');
+    // Use an Accounting-specific namespace for isolated local state
+    setDocumentsNamespace('accounting-documents-store');
+    // Point API client base to Accounting routes
+    setDocumentsApiBase('/api/v1/accounting/documents');
+    trackEvent('accounting_documents_open', { module: 'accounting' });
     // Restore persisted role if available
     const savedRole = localStorage.getItem('user-role') as Role | null;
     if (savedRole === 'Admin' || savedRole === 'Editor' || savedRole === 'Viewer') {
@@ -52,7 +56,7 @@ const Documents: React.FC = () => {
   }, [folderIdParam]);
 
   useEffect(() => {
-    trackEvent('dms_documents_navigate', { folderId: currentFolderId });
+    trackEvent('accounting_documents_navigate', { module: 'accounting', folderId: currentFolderId });
   }, [currentFolderId]);
 
   const breadcrumb = useMemo(() => getBreadcrumb(currentFolderId), [currentFolderId, refreshKey]);
@@ -66,7 +70,7 @@ const Documents: React.FC = () => {
     const next = new URLSearchParams(searchParams);
     next.set('view', view);
     setSearchParams(next);
-    trackEvent('documents_view_mode', { module: 'dms', view });
+    trackEvent('documents_view_mode', { module: 'accounting', view });
   };
 
   const getFileIcon = (type: string) => {
@@ -98,20 +102,20 @@ const Documents: React.FC = () => {
   };
 
   function navigateToNode(folderId: number) {
-    trackEvent('documents_navigate_node', { module: 'dms', folderId });
-    navigate(`/dms/documents/${folderId}`);
+    trackEvent('documents_navigate_node', { module: 'accounting', folderId });
+    navigate(`/accounting/documents/${folderId}`);
   }
 
   function navigateToCrumb(folderId: number) {
-    trackEvent('documents_navigate_crumb', { module: 'dms', folderId });
-    navigate(`/dms/documents/${folderId}`);
+    trackEvent('documents_navigate_crumb', { module: 'accounting', folderId });
+    navigate(`/accounting/documents/${folderId}`);
   }
 
   function addFolder() {
     if (!canEdit) return;
     const name = window.prompt('New folder name:');
     if (!name) return;
-    trackEvent('folder_create', { module: 'dms', parentId: currentFolderId, name });
+    trackEvent('folder_create', { module: 'accounting', parentId: currentFolderId, name });
     createFolder(currentFolderId, name);
     setRefreshKey((x) => x + 1);
   }
@@ -120,7 +124,7 @@ const Documents: React.FC = () => {
     if (!canEdit) return;
     const name = window.prompt('Rename to:', current?.name ?? '');
     if (!name) return;
-    trackEvent('folder_rename', { module: 'dms', id: current?.id, name });
+    trackEvent('folder_rename', { module: 'accounting', id: current?.id, name });
     if (current) renameFolder(current.id, name);
     setRefreshKey((x) => x + 1);
   }
@@ -129,40 +133,40 @@ const Documents: React.FC = () => {
     if (!canEdit) return;
     if (!current || current.parentId === null) return alert('Cannot delete root');
     const parentId = breadcrumb[breadcrumb.length - 2]?.id ?? getRootFolderId();
-    trackEvent('folder_delete', { module: 'dms', id: current.id });
+    trackEvent('folder_delete', { module: 'accounting', id: current.id });
     removeFolder(current.id);
     setRefreshKey((x) => x + 1);
-    navigate(`/dms/documents/${parentId}`);
+    navigate(`/accounting/documents/${parentId}`);
   }
 
   function moveCurrent() {
     if (!canEdit) return;
-    trackEvent('folder_move_initiated', { module: 'dms', id: current?.id });
+    trackEvent('folder_move_initiated', { module: 'accounting', id: current?.id });
     alert('Move action would present a destination picker (prototype).');
   }
 
   function shareCurrent() {
-    trackEvent('share_link_initiated', { module: 'dms', id: current?.id });
+    trackEvent('share_link_initiated', { module: 'accounting', id: current?.id });
     alert('Share would create a signed link with expiry (prototype).');
   }
 
   function uploadFiles() {
     if (!canEdit) return;
-    trackEvent('upload_click', { module: 'dms', folderId: currentFolderId });
+    trackEvent('upload_click', { module: 'accounting', folderId: currentFolderId });
     fileInputRef.current?.click();
   }
 
   function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    trackEvent('document_upload', { module: 'dms', folderId: currentFolderId, count: files.length });
+    trackEvent('document_upload', { module: 'accounting', folderId: currentFolderId, count: files.length });
     uploadDocuments(currentFolderId, Array.from(files), 'You');
     setRefreshKey((x) => x + 1);
     e.target.value = '';
   }
 
   return (
-    <DMSLayout>
+    <MainLayout>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -278,41 +282,42 @@ const Documents: React.FC = () => {
                           {getFileIcon(doc.ext || '')}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{doc.name}</p>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-xs text-muted-foreground">{formatSize(doc.sizeBytes)}</span>
-                            <span className="text-xs text-muted-foreground">•</span>
-                            <Badge variant="outline" className="text-xs">v{doc.version}</Badge>
-                            <span className="text-xs text-muted-foreground">•</span>
-                            <span className="text-xs text-muted-foreground">{new Date(doc.createdAt).toLocaleDateString()}</span>
+                          <div className="font-medium truncate">{doc.name}</div>
+                          <div className="text-xs text-muted-foreground flex items-center gap-2">
+                            <span>v{doc.version}</span>
+                            <span>•</span>
+                            <span>{formatSize(doc.sizeBytes)}</span>
+                            <span>•</span>
+                            <span>Uploaded {new Date(doc.createdAt).toLocaleDateString()}</span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Avatar className="h-8 w-8">
-                            <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                              {(doc.uploadedBy || 'Y').slice(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                        </div>
                       </div>
-                      <div className="flex items-center gap-2 ml-4">
-                        <Button size="icon" variant="ghost"><Eye className="h-4 w-4" /></Button>
-                        <Button size="icon" variant="ghost"><Download className="h-4 w-4" /></Button>
-                        <Button size="icon" variant="ghost" disabled={!canEdit} onClick={() => { if (!canEdit) return; trackEvent('document_delete', { module: 'dms', id: doc.id }); removeDocument(doc.id); setRefreshKey((x) => x + 1); }}><Trash2 className="h-4 w-4 text-red-500 dark:brightness-110" /></Button>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" className="gap-1"><Eye className="h-4 w-4" /> View</Button>
+                        <Button variant="outline" size="sm" className="gap-1"><Download className="h-4 w-4" /> Download</Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => { if (!canEdit) return; trackEvent('document_delete', { module: 'accounting', id: doc.id }); removeDocument(doc.id); setRefreshKey((x) => x + 1); }}
+                          disabled={!canEdit}
+                        >
+                          <Trash2 className="h-4 w-4" /> Delete
+                        </Button>
                       </div>
                     </motion.div>
                   ))}
                 </div>
+
+                {/* Upload input (hidden) */}
+                <input type="file" ref={fileInputRef} hidden multiple onChange={onFileSelected} />
               </CardContent>
             </Card>
           </div>
         </div>
-
-        {/* Hidden file input */}
-        <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFileSelected} />
       </motion.div>
-    </DMSLayout>
+    </MainLayout>
   );
 };
 
-export default Documents;
+export default AccountingDocuments;

@@ -45,7 +45,15 @@ interface StoreShape {
   audit: AuditLog[];
 }
 
-const LS_KEY = 'dms-documents-store';
+// Namespace & data source scaffolding
+let LS_KEY = 'dms-documents-store';
+type DataSource = 'local' | 'api';
+let DATA_SOURCE: DataSource = 'local';
+
+export function setDocumentsNamespace(ns: string) { LS_KEY = ns; }
+export function getDocumentsNamespace(): string { return LS_KEY; }
+export function setDataSource(source: DataSource) { DATA_SOURCE = source; }
+export function getDataSource(): DataSource { return DATA_SOURCE; }
 
 function nowISO() { return new Date().toISOString(); }
 
