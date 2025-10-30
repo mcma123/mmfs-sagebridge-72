@@ -53,13 +53,43 @@ const UserAccess = () => {
     },
     {
       id: 2,
-      name: 'Suppliers',
+      name: 'Entities',
       permissions: ['view', 'create', 'edit', 'delete'],
     },
     {
       id: 3,
+      name: 'Debit/Credit Notes',
+      permissions: ['view', 'create', 'edit', 'delete'],
+    },
+    {
+      id: 4,
+      name: 'Payment Reconciliation',
+      permissions: ['view', 'create', 'edit', 'delete'],
+    },
+    {
+      id: 5,
+      name: 'Banking',
+      permissions: ['view', 'create', 'edit', 'delete', 'export'],
+    },
+    {
+      id: 6,
+      name: 'Accounting',
+      permissions: ['view', 'create', 'edit', 'delete', 'export'],
+    },
+    {
+      id: 7,
+      name: 'Reports',
+      permissions: ['view', 'export'],
+    },
+    {
+      id: 8,
       name: 'Administration',
       permissions: ['view', 'manage_users', 'manage_roles', 'system_settings'],
+    },
+    {
+      id: 9,
+      name: 'Settings',
+      permissions: ['view', 'edit'],
     },
   ];
 
@@ -204,4 +234,4 @@ const UserAccess = () => {
   );
 };
 
-export default UserAccess; 
+export default UserAccess;

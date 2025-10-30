@@ -9,26 +9,17 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Search, Plus, Building2, Users, Shield } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { listEntities, type ClientEntity, type CdantEntity, type ReinsurerEntity } from '@/lib/store/entities';
 
-// Sample data
-const clients = [
-  { id: 1, name: 'Oceanic Shipping Ltd', currency: 'USD', outstanding: 45000, status: 'Active' },
-  { id: 2, name: 'Coastal Freight SA', currency: 'ZAR', outstanding: 125000, status: 'Active' },
-];
-
-const cdants = [
-  { id: 1, name: 'Marine Brokers PTY', commissionRate: 15, outstanding: 22500, status: 'Active' },
-  { id: 2, name: 'Port Insurance Agents', commissionRate: 12.5, outstanding: 18750, status: 'Active' },
-];
-
-const reinsurers = [
-  { id: 1, name: 'Global Reinsurance Corp', treatyTerms: 'Quota Share 40%', outstanding: -35000, status: 'Active' },
-  { id: 2, name: 'Marine Re International', treatyTerms: 'Excess of Loss', outstanding: -28000, status: 'Active' },
-];
+// Store-derived lists (computed within component for fresh data)
 
 const Entities = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+
+  const clients = listEntities('Client') as ClientEntity[];
+  const cdants = listEntities('CDANT') as CdantEntity[];
+  const reinsurers = listEntities('Reinsurer') as ReinsurerEntity[];
 
   return (
     <MainLayout>
@@ -90,12 +81,14 @@ const Entities = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {clients.map(client => (
+                    {clients
+                      .filter((c) => c.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                      .map(client => (
                       <TableRow key={client.id}>
                         <TableCell className="font-medium">{client.name}</TableCell>
-                        <TableCell>{client.currency}</TableCell>
+                        <TableCell>{client.currency || 'ZAR'}</TableCell>
                         <TableCell className="text-amber-600">
-                          {client.currency} {client.outstanding.toLocaleString()}
+                          {(client.currency || 'ZAR')} {Number(client.outstanding || 0).toLocaleString()}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="bg-green-50 text-green-700">
@@ -134,9 +127,9 @@ const Entities = () => {
                     {cdants.map(cdant => (
                       <TableRow key={cdant.id}>
                         <TableCell className="font-medium">{cdant.name}</TableCell>
-                        <TableCell>{cdant.commissionRate}%</TableCell>
+                        <TableCell>{Number(cdant.commissionRate || 0)}%</TableCell>
                         <TableCell className="text-red-600">
-                          ZAR {cdant.outstanding.toLocaleString()}
+                          {(cdant.currency || 'ZAR')} {Number(cdant.outstanding || 0).toLocaleString()}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="bg-green-50 text-green-700">
@@ -177,7 +170,7 @@ const Entities = () => {
                         <TableCell className="font-medium">{reinsurer.name}</TableCell>
                         <TableCell>{reinsurer.treatyTerms}</TableCell>
                         <TableCell className="text-green-600">
-                          USD {Math.abs(reinsurer.outstanding).toLocaleString()} (Payable)
+                          {(reinsurer.currency || 'USD')} {Math.abs(Number(reinsurer.netPosition ?? 0)).toLocaleString()} (Payable)
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="bg-green-50 text-green-700">

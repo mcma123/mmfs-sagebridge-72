@@ -5,6 +5,7 @@ info:
 servers:
   - url: /api/v1/documents
   - url: /api/v1/accounting/documents
+  - url: /api/v1/banking
 paths:
   /companies/{companyId}/tree:
     get:
@@ -198,6 +199,284 @@ paths:
                   type: string
                 tags:
                   type: array
+                  items:
+                    type: string
+  
+  # Banking Import
+  /banking/import/sessions:
+    get:
+      summary: List import sessions
+      responses:
+        '200':
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ImportSession'
+    post:
+      summary: Create a new import session
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSession'
+  /banking/import/sessions/{id}:
+    get:
+      summary: Get session details
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportSessionDetail'
+  /banking/import/sessions/{id}/analyze:
+    post:
+      summary: Analyze CSV headers and delimiter
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Analysis result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CsvAnalysis'
+  /banking/import/sessions/{id}/stage:
+    post:
+      summary: Stage rows with mapping and transforms
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                templateId:
+                  type: string
+      responses:
+        '200':
+          description: Staging result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows:
+                    type: integer
+  /banking/import/sessions/{id}/rows/{rowId}:
+    patch:
+      summary: Edit a staged row
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: rowId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated row
+  /banking/import/sessions/{id}/commit:
+    post:
+      summary: Commit staged rows to accounting destinations
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DestinationSelection'
+      responses:
+        '200':
+          description: Commit result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommitResult'
+  /banking/import/templates:
+    get:
+      summary: List mapping templates
+      responses:
+        '200':
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ImportMappingTemplate'
+    post:
+      summary: Create a mapping template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportMappingTemplate'
+      responses:
+        '201':
+          description: Created template
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportMappingTemplate'
+
+components:
+  schemas:
+    ImportSession:
+      type: object
+      properties:
+        id:
+          type: string
+        fileName:
+          type: string
+        status:
+          type: string
+        totals:
+          $ref: '#/components/schemas/ImportSessionTotals'
+    ImportSessionTotals:
+      type: object
+      properties:
+        count: { type: integer }
+        valid: { type: integer }
+        invalid: { type: integer }
+        duplicate: { type: integer }
+        excluded: { type: integer }
+        debitTotal: { type: number }
+        creditTotal: { type: number }
+    ImportSessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/ImportSession'
+        - type: object
+          properties:
+            rows:
+              type: array
+              items:
+                $ref: '#/components/schemas/NormalizedTransaction'
+            errors:
+              type: array
+              items:
+                $ref: '#/components/schemas/ImportError'
+    CsvAnalysis:
+      type: object
+      properties:
+        delimiter:
+          type: string
+        headers:
+          type: array
+          items: { type: string }
+        recordCount:
+          type: integer
+    ImportMappingTemplate:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        bank: { type: string }
+        headerMap:
+          type: object
+          additionalProperties: { type: string }
+        transforms:
+          type: object
+          properties:
+            invertSigns: { type: boolean }
+            fixedCurrency: { type: string }
+            defaultAccountCode: { type: string }
+    NormalizedTransaction:
+      type: object
+      properties:
+        id: { type: string }
+        date: { type: string }
+        description: { type: string }
+        amount: { type: number }
+        debit: { type: number }
+        credit: { type: number }
+        accountCode: { type: string }
+        reference: { type: string }
+        currency: { type: string }
+        validationStatus: { type: string }
+        duplicateFlag: { type: boolean }
+        excluded: { type: boolean }
+    ImportError:
+      type: object
+      properties:
+        id: { type: string }
+        rowIndex: { type: integer }
+        field: { type: string }
+        code: { type: string }
+        message: { type: string }
+    DestinationSelection:
+      type: object
+      properties:
+        journalEntries: { type: boolean }
+        trialBalance: { type: boolean }
+        chartOfAccounts: { type: boolean }
+    CommitResult:
+      type: object
+      properties:
+        sessionId: { type: string }
+        success: { type: boolean }
+        committedRows: { type: integer }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/ImportError' }
+        reportUrl: { type: string }
                   items:
                     type: string
       responses:

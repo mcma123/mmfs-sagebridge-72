@@ -10,7 +10,7 @@ const Landing: React.FC = () => {
   const systems = [
     {
       title: 'Accounting System',
-      description: 'Marine insurance accounting with GL, Trial Balance, and more',
+      description: 'MMFS accounting with GL, Trial Balance',
       icon: LayoutDashboard,
       path: '/login',
       available: true,
