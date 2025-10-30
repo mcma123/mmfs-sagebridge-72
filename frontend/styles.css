@@ -1,0 +1,17 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Arial, sans-serif; color: #1b1b1b; }
+header { padding: 8px 12px; border-bottom: 1px solid #ddd; background: #fafafa; }
+#breadcrumb { font-size: 14px; margin-bottom: 6px; }
+.toolbar { display: flex; gap: 8px; }
+main { display: grid; grid-template-columns: 260px 1fr 300px; height: calc(100vh - 66px); }
+#tree { border-right: 1px solid #eee; overflow: auto; padding: 8px; }
+#content { overflow: auto; padding: 8px; }
+#details { border-left: 1px solid #eee; padding: 8px; background: #fcfcfc; }
+.node { padding: 4px; cursor: pointer; border-radius: 4px; }
+.node:hover { background: #f0f7ff; }
+.folder::before { content: '📁 '; }
+.document::before { content: '📄 '; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 8px; background: #fff; box-shadow: 0 0 2px rgba(0,0,0,0.06); }
+.crumb { color: #0366d6; cursor: pointer; }
+.crumb + .crumb::before { content: ' / '; color: #888; }

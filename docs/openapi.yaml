@@ -1,0 +1,304 @@
+openapi: 3.0.3
+info:
+  title: SageBridge Documents API
+  version: 1.0.0
+servers:
+  - url: /api/v1/documents
+paths:
+  /companies/{companyId}/tree:
+    get:
+      summary: Fetch tree or subtree
+      parameters:
+        - in: path
+          name: companyId
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: folderId
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Tree data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Folder'
+  /folders/{id}:
+    get:
+      summary: Folder details + breadcrumb
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Folder details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderDetail'
+    patch:
+      summary: Rename or update metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Updated folder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Folder'
+    delete:
+      summary: Soft delete folder
+      responses:
+        '204':
+          description: Deleted
+  /folders:
+    post:
+      summary: Create folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFolder'
+      responses:
+        '201':
+          description: Created folder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Folder'
+  /folders/{id}/children:
+    get:
+      summary: List child folders/documents
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Children list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChildrenList'
+  /folders/{id}/move:
+    post:
+      summary: Move folder to a new parent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                newParentId:
+                  type: integer
+      responses:
+        '200':
+          description: Moved folder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Folder'
+  /folders/{id}/template:
+    post:
+      summary: Apply a template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                template:
+                  type: string
+      responses:
+        '200':
+          description: Template applied
+  /folders/{id}/upload:
+    post:
+      summary: Upload file(s)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+  /documents/{id}:
+    get:
+      summary: Get document metadata and signed URL
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Document metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentDetail'
+    patch:
+      summary: Update document metadata/tags
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Updated document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+  /documents/{id}/move:
+    post:
+      summary: Move document between folders
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetFolderId:
+                  type: integer
+      responses:
+        '200':
+          description: Moved document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+  /documents/{id}/versions:
+    get:
+      summary: List versions
+      responses:
+        '200':
+          description: Versions list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DocumentVersion'
+
+components:
+  schemas:
+    Folder:
+      type: object
+      properties:
+        id: { type: integer }
+        company_id: { type: integer }
+        parent_id: { type: integer, nullable: true }
+        name: { type: string }
+        slug: { type: string }
+        type: { type: string, enum: [company, country, cedant, category, treaty_section, generic] }
+        path: { type: string }
+        depth: { type: integer }
+        order_index: { type: integer }
+    FolderDetail:
+      allOf:
+        - $ref: '#/components/schemas/Folder'
+        - type: object
+          properties:
+            breadcrumb:
+              type: array
+              items:
+                $ref: '#/components/schemas/Folder'
+    ChildrenList:
+      type: object
+      properties:
+        folders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Folder'
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/Document'
+    CreateFolder:
+      type: object
+      required: [parent_id, name, type]
+      properties:
+        parent_id: { type: integer }
+        name: { type: string }
+        type: { type: string }
+    Document:
+      type: object
+      properties:
+        id: { type: integer }
+        folder_id: { type: integer }
+        name: { type: string }
+        ext: { type: string }
+        mime_type: { type: string }
+        size_bytes: { type: integer }
+        storage_key: { type: string }
+        checksum_sha256: { type: string }
+        version: { type: integer }
+    DocumentDetail:
+      allOf:
+        - $ref: '#/components/schemas/Document'
+        - type: object
+          properties:
+            signed_url: { type: string }
+    DocumentVersion:
+      type: object
+      properties:
+        version: { type: integer }
+        created_at: { type: string, format: date-time }

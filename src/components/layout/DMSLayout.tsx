@@ -46,6 +46,16 @@ const DMSLayout: React.FC<DMSLayoutProps> = ({ children }) => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Hamburger to toggle full-screen by hiding the sidebar */}
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Toggle sidebar"
+              title={sidebarOpen ? 'Hide sidebar (Full Screen)' : 'Show sidebar'}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -73,7 +83,7 @@ const DMSLayout: React.FC<DMSLayoutProps> = ({ children }) => {
       <div className="flex">
         {/* Sidebar */}
         <aside
-          className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:w-64 w-64 bg-card text-card-foreground border-r border-border min-h-screen transition-transform duration-200`}
+          className={`${sidebarOpen ? 'translate-x-0 md:translate-x-0 md:w-64 w-64' : '-translate-x-full md:-translate-x-full md:w-0 w-0'} bg-card text-card-foreground border-r border-border min-h-screen transition-all duration-200`}
         >
           <div className="p-4 hidden md:block">
             <div className="flex items-center gap-3">

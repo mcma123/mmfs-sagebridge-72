@@ -100,6 +100,7 @@ const App = () => (
               <Route path="/dms/projects" element={<Projects />} />
               <Route path="/dms/progress" element={<ProgressTracker />} />
               <Route path="/dms/documents" element={<Documents />} />
+              <Route path="/dms/documents/:folderId" element={<Documents />} />
               <Route path="/dms/tasks" element={<Tasks />} />
               
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

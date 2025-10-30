@@ -1,0 +1,256 @@
+// Lightweight in-browser store for DMS Documents module
+// Persists folders, documents, templates, and audit logs in localStorage.
+
+export type Role = 'Admin' | 'Editor' | 'Viewer';
+export type NodeType = 'company' | 'country' | 'cedant' | 'category' | 'treaty_section' | 'generic';
+
+export interface Folder {
+  id: number;
+  parentId: number | null;
+  name: string;
+  type: NodeType;
+  path: number[]; // materialized IDs path from root to this folder
+  createdAt: string;
+  metadata?: Record<string, any>;
+}
+
+export interface DocumentItem {
+  id: number;
+  folderId: number;
+  name: string;
+  ext?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  tags?: string[];
+  uploadedBy?: string;
+  version: number;
+  createdAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  entityType: 'folder' | 'document';
+  entityId: number;
+  actor?: string;
+  metadata?: Record<string, any>;
+  at: string;
+}
+
+interface StoreShape {
+  seq: number;
+  rootFolderId: number;
+  folders: Record<number, Folder>;
+  documents: Record<number, DocumentItem>;
+  audit: AuditLog[];
+}
+
+const LS_KEY = 'dms-documents-store';
+
+function nowISO() { return new Date().toISOString(); }
+
+function nextId(store: StoreShape) { store.seq += 1; return store.seq; }
+
+export function loadStore(): StoreShape {
+  const raw = localStorage.getItem(LS_KEY);
+  if (raw) {
+    try {
+      const s = JSON.parse(raw) as StoreShape;
+      // Migration: rename any company named "Acme Re" to "MMFS"
+      let changed = false;
+      Object.values(s.folders).forEach((f) => {
+        if (f.parentId === null && f.type === 'company' && f.name === 'Acme Re') {
+          f.name = 'MMFS';
+          changed = true;
+        }
+      });
+      if (changed) persist(s);
+      return s;
+    } catch {}
+  }
+  const store: StoreShape = {
+    seq: 0,
+    rootFolderId: 0,
+    folders: {},
+    documents: {},
+    audit: [],
+  };
+  // Seed: one company → Countries → default list
+  const rootId = nextId(store);
+  const company: Folder = { id: rootId, parentId: null, name: 'MMFS', type: 'company', path: [rootId], createdAt: nowISO() };
+  store.folders[rootId] = company;
+  store.rootFolderId = rootId;
+
+  const countriesId = nextId(store);
+  store.folders[countriesId] = { id: countriesId, parentId: rootId, name: 'Countries', type: 'generic', path: [rootId, countriesId], createdAt: nowISO() };
+
+  const defaults = ['Zimbabwe', 'Botswana', 'Mozambique', 'Malawi', 'Angola', 'Zambia', 'South Africa'];
+  defaults.forEach((name) => {
+    const id = nextId(store);
+    store.folders[id] = { id, parentId: countriesId, name, type: 'country', path: [rootId, countriesId, id], createdAt: nowISO() };
+  });
+
+  persist(store);
+  return store;
+}
+
+export function persist(store: StoreShape) {
+  localStorage.setItem(LS_KEY, JSON.stringify(store));
+}
+
+export function getRootFolderId(): number {
+  const s = loadStore();
+  return s.rootFolderId;
+}
+
+export function getFolder(id: number): Folder | undefined {
+  const s = loadStore();
+  return s.folders[id];
+}
+
+export function getBreadcrumb(id: number): Folder[] {
+  const s = loadStore();
+  const f = s.folders[id];
+  if (!f) return [];
+  return f.path.map((fid) => s.folders[fid]).filter(Boolean) as Folder[];
+}
+
+export function listChildren(folderId: number): { folders: Folder[]; documents: DocumentItem[] } {
+  const s = loadStore();
+  const folders = Object.values(s.folders).filter((f) => f.parentId === folderId);
+  const documents = Object.values(s.documents).filter((d) => d.folderId === folderId);
+  return { folders, documents };
+}
+
+export function createFolder(parentId: number, name: string, type: NodeType = 'generic'): Folder {
+  const s = loadStore();
+  const parent = s.folders[parentId];
+  if (!parent) throw new Error('Parent folder not found');
+  const id = nextId(s);
+  const folder: Folder = { id, parentId, name, type, path: [...parent.path, id], createdAt: nowISO() };
+  s.folders[id] = folder;
+  logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: 'folder.create', entityType: 'folder', entityId: id, metadata: { name, type, parentId }, at: nowISO() });
+  persist(s);
+  return folder;
+}
+
+export function renameFolder(id: number, name: string) {
+  const s = loadStore();
+  const folder = s.folders[id];
+  if (!folder) throw new Error('Folder not found');
+  folder.name = name;
+  logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: 'folder.rename', entityType: 'folder', entityId: id, metadata: { name }, at: nowISO() });
+  persist(s);
+  return folder;
+}
+
+export function uploadDocuments(folderId: number, files: File[], uploadedBy?: string): DocumentItem[] {
+  const s = loadStore();
+  const created: DocumentItem[] = [];
+  files.forEach((file) => {
+    const id = nextId(s);
+    const name = file.name;
+    const ext = name.includes('.') ? name.split('.').pop() : undefined;
+    const item: DocumentItem = {
+      id,
+      folderId,
+      name,
+      ext,
+      mimeType: file.type,
+      sizeBytes: file.size,
+      version: 1,
+      uploadedBy,
+      createdAt: nowISO(),
+    };
+    s.documents[id] = item;
+    logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: 'document.upload', entityType: 'document', entityId: id, metadata: { folderId, name, size: file.size }, at: nowISO() });
+    created.push(item);
+  });
+  persist(s);
+  return created;
+}
+
+export function applyTemplate(folderId: number, template: 'treaty_sections' | 'cedants' | 'country_seed' | 'company_root') {
+  const s = loadStore();
+  const parent = s.folders[folderId];
+  if (!parent) throw new Error('Folder not found');
+  const created: Folder[] = [];
+  const add = (name: string, type: NodeType) => { created.push(createFolder(folderId, name, type)); };
+  switch (template) {
+    case 'treaty_sections':
+      add('Quotations', 'treaty_section');
+      add('Placements', 'treaty_section');
+      add('Masters', 'treaty_section');
+      break;
+    case 'cedants':
+      add('Cedants', 'generic');
+      break;
+    case 'country_seed':
+      ['Zimbabwe', 'Botswana', 'Mozambique', 'Malawi', 'Angola', 'Zambia', 'South Africa'].forEach((c) => add(c, 'country'));
+      break;
+    case 'company_root':
+      add('Countries', 'generic');
+      break;
+    default:
+      break;
+  }
+  const actionName = `template.apply.${template}`;
+  logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: actionName, entityType: 'folder', entityId: folderId, metadata: { created: created.map(f => f.id) }, at: nowISO() });
+  persist(s);
+  return created;
+}
+
+export function search(query: string, folderScopeId?: number): { folders: Folder[]; documents: DocumentItem[] } {
+  const s = loadStore();
+  const q = query.trim().toLowerCase();
+  const folders = Object.values(s.folders).filter((f) => {
+    const withinScope = !folderScopeId || f.path.includes(folderScopeId);
+    return withinScope && f.name.toLowerCase().includes(q);
+  });
+  const documents = Object.values(s.documents).filter((d) => {
+    const withinScope = !folderScopeId || s.folders[d.folderId]?.path.includes(folderScopeId);
+    return withinScope && d.name.toLowerCase().includes(q);
+  });
+  return { folders, documents };
+}
+
+export function getAuditLogs(folderId?: number): AuditLog[] {
+  const s = loadStore();
+  if (!folderId) return s.audit.slice().reverse();
+  const related = s.audit.filter((a) => {
+    if (a.entityType === 'folder') return a.entityId === folderId;
+    if (a.entityType === 'document') {
+      const doc = s.documents[a.entityId];
+      return doc?.folderId === folderId;
+    }
+    return false;
+  });
+  return related.slice().reverse();
+}
+
+function logInternal(store: StoreShape, entry: AuditLog) {
+  store.audit.push(entry);
+}
+
+export function removeDocument(id: number) {
+  const s = loadStore();
+  if (!s.documents[id]) return;
+  const folderId = s.documents[id].folderId;
+  delete s.documents[id];
+  logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: 'document.delete', entityType: 'document', entityId: id, metadata: { folderId }, at: nowISO() });
+  persist(s);
+}
+
+export function removeFolder(id: number) {
+  const s = loadStore();
+  if (!s.folders[id]) return;
+  // Recursively remove children
+  const children = Object.values(s.folders).filter((f) => f.parentId === id);
+  children.forEach((c) => removeFolder(c.id));
+  const docs = Object.values(s.documents).filter((d) => d.folderId === id);
+  docs.forEach((d) => removeDocument(d.id));
+  const parentId = s.folders[id].parentId;
+  delete s.folders[id];
+  logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: 'folder.delete', entityType: 'folder', entityId: id, metadata: { parentId }, at: nowISO() });
+  persist(s);
+}

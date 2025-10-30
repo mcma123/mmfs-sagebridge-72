@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Documents Explorer Prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <nav id="breadcrumb"></nav>
+      <div class="toolbar">
+        <button id="btnNewFolder">New Folder</button>
+        <button id="btnUpload">Upload</button>
+        <button id="btnRename">Rename</button>
+        <button id="btnMove">Move</button>
+        <button id="btnDelete">Delete</button>
+        <button id="btnShare">Share</button>
+      </div>
+    </header>
+    <main>
+      <aside id="tree"></aside>
+      <section id="content"></section>
+      <aside id="details">
+        <h3>Details</h3>
+        <div id="detailsBody"></div>
+      </aside>
+    </main>
+    <input type="file" id="fileInput" multiple style="display:none" />
+    <script src="app.js"></script>
+  </body>
+</html>
