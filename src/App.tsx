@@ -12,7 +12,6 @@ import { ProjectsProvider } from "@/lib/store/projects";
 import Landing from "./pages/Landing";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
-import Signup from "./pages/Signup";
 
 // DMS imports
 import DMSLogin from "./pages/dms/DMSLogin";
@@ -68,7 +67,6 @@ const App = () => (
               <Route path="/" element={<Landing />} />
               <Route path="/dashboard" element={<Index />} />
               <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
               <Route path="/entities" element={<Entities />} />
               <Route path="/entities/add" element={<AddEntity />} />
         <Route path="/debit-credit-notes" element={<DebitCreditNotes />} />

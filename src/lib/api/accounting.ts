@@ -44,6 +44,7 @@ export type EntityDTO = {
   email?: string | null;
   phone?: string | null;
   notes?: string | null;
+  deleted_at?: string | null;
 };
 
 export type AccountDTO = {
@@ -63,6 +64,7 @@ export type JournalDTO = {
   description?: string | null;
   created_by?: number | null;
   created_at?: string;
+  voided_at?: string | null;
 };
 
 export type JournalLineInput = {
@@ -79,6 +81,18 @@ export type PostJournalRequest = {
   reference?: string | null;
   description?: string | null;
   lines: JournalLineInput[];
+};
+
+export type JournalLineDTO = {
+  id: number;
+  journal_id: number;
+  account_id: number;
+  entity_id?: number | null;
+  date: string;
+  debit: number;
+  credit: number;
+  memo?: string | null;
+  created_at?: string;
 };
 
 export async function getEntities(role: Role = 'accountant') {
@@ -100,4 +114,20 @@ export async function getJournals(params?: { start?: string; end?: string }, rol
 
 export async function postJournal(payload: PostJournalRequest, role: Role = 'accountant', userId: number = 1) {
   return apiFetch<{ journal_id: number }>(`/journals`, { method: 'POST', body: JSON.stringify(payload) }, role, userId);
+}
+
+export async function getEntity(id: number, role: Role = 'accountant') {
+  return apiFetch<EntityDTO>(`/entities/${id}`, { method: 'GET' }, role);
+}
+
+export async function deleteEntity(id: number, role: Role = 'accountant') {
+  return apiFetch<void>(`/entities/${id}`, { method: 'DELETE' }, role);
+}
+
+export async function getJournal(id: number, role: Role = 'accountant') {
+  return apiFetch<{ journal: JournalDTO; lines: JournalLineDTO[] }>(`/journals/${id}`, { method: 'GET' }, role);
+}
+
+export async function voidJournal(id: number, reason?: string, role: Role = 'accountant', userId: number = 1) {
+  return apiFetch<{ reversal_journal_id: number }>(`/journals/${id}/void`, { method: 'POST', body: JSON.stringify({ reason: reason ?? null }) }, role, userId);
 }

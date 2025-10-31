@@ -1,4 +1,4 @@
-# Data Model – Source of Truth (Updated)
+![1761898776136](image/datamodel/1761898776136.png)![1761898777987](image/datamodel/1761898777987.png)![1761898782662](image/datamodel/1761898782662.png)![1761898785132](image/datamodel/1761898785132.png)![1761898790629](image/datamodel/1761898790629.png)![1761898796656](image/datamodel/1761898796656.png)![1761901372082](image/datamodel/1761901372082.png)![1761901495368](image/datamodel/1761901495368.png)# Data Model – Source of Truth (Updated)
 
 Purpose: centralize the application’s data model across database schemas, service models, migrations, and environment/runtime connectivity. This document is maintained alongside migrations and backend changes.
 
@@ -11,7 +11,7 @@ Purpose: centralize the application’s data model across database schemas, serv
 ## Conventions
 - Schema prefix: `dms` for Document Management System tables.
 - Auth schema: backend uses `app.*` for users/roles mapping. Reserved `auth` schema is not used by routes or login.
-- Soft-deletes via `deleted_at` on folder and document records; queries exclude soft-deleted rows by default.
+- Soft-deletes via `deleted_at` on folder, document, and accounting entity records; queries exclude soft-deleted rows by default.
 - Materialized path: folders store hierarchical path in `folders.path` (e.g., `/1/34/78`) and `depth` for fast filters.
 - RBAC: JWT-based roles (`admin`, `accountant`, `editor`, `viewer`). A fallback header `X-Role` may be supported in some clients during transition.
 - JSON fields: flexible metadata stored in `*_json` columns where noted.
@@ -26,6 +26,7 @@ Purpose: centralize the application’s data model across database schemas, serv
   - SSL: enabled automatically if `sslmode=require` in the URL, or when `PGSSL=true` is set.
   - Dev TLS: when SSL is required, the backend relaxes TLS verification in dev by setting `NODE_TLS_REJECT_UNAUTHORIZED=0` to avoid self-signed chain errors with Supabase. Do not rely on this in production; instead provide proper CA or managed certs.
 - Env vars (Supabase): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (server); `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (client).
+ - Supabase REST: ensure “Exposed schemas” includes `public` so the Data API can select `public.accounting_*` views. Without this, `/api/v1/accounting/*` reads may return 500 with `DB_ERROR`.
 - Loading env: `dotenv/config` is imported in `backend/src/index.ts` and `backend/src/middleware/pg.ts` so both the server and PG pool creation see `.env` variables reliably.
 - Server port: `API_PORT` (default `3001`) is supported for running multiple local instances (e.g., `3003`).
 
@@ -141,10 +142,10 @@ Notes:
 
 ### Schema: `accounting` (source tables)
 
-- `entities` (`id`, `type`, `name`, `status`, `currency`, `country`, `email`, `phone`, `notes`, `created_at`, `updated_at`)
+- `entities` (`id`, `type`, `name`, `status`, `currency`, `country`, `email`, `phone`, `notes`, `created_at`, `updated_at`, `deleted_at`)
 - `accounts` (`id`, `code` UNIQUE, `name`, `type`, `currency`, `parent_id`, `is_active`, `created_at`)
   - Note: `updated_at` may be absent in the deployed database.
-- `journals` (`id`, `date`, `reference`, `description`, `created_by`, `created_at`)
+- `journals` (`id`, `date`, `reference`, `description`, `created_by`, `created_at`, `voided_at`)
   - Note: `updated_at` may be absent in the deployed database.
 - `journal_lines` (`id`, `journal_id`, `account_id`, `entity_id`, `date`, `debit`, `credit`, `memo`, `created_at`)
 - `ledger_entries` (`id`, `account_id`, `journal_line_id`, `date`, `debit`, `credit`, `balance_after`, `created_at`)
@@ -154,11 +155,13 @@ Notes:
 
 - `public.accounting_entities` → selects all columns from `accounting.entities`.
 - `public.accounting_accounts` → selects `id, code, name, type, currency, parent_id, is_active, created_at` from `accounting.accounts`.
-- `public.accounting_journals` → selects `id, date, reference, description, created_by, created_at` from `accounting.journals`.
+- `public.accounting_journals` → selects `id, date, reference, description, created_by, created_at, voided_at` from `accounting.journals`.
+- `public.accounting_journal_lines` → selects `id, journal_id, account_id, entity_id, date, debit, credit, memo, created_at` from `accounting.journal_lines`.
 - `public.accounting_ledger_entries` → selects `id, account_id, journal_line_id, date, debit, credit, balance_after, created_at` from `accounting.ledger_entries`.
 - `public.accounting_trial_balance_current` → alias for `accounting.v_trial_balance_current`.
 
 Grants: `SELECT` on these views to `anon`, `authenticated`, and `service_role` for Supabase Data API access.
+Note: Supabase API settings must expose the `public` schema to allow these views to be accessible via the Data API.
 
 ## Service Models
 
@@ -178,17 +181,21 @@ Grants: `SELECT` on these views to `anon`, `authenticated`, and `service_role` f
 - Accounting API
   - Endpoints: `/api/v1/accounting/*`.
   - Reads use public views; writes use RPC functions:
-    - `GET /entities` → `public.accounting_entities`.
+    - `GET /entities` → `public.accounting_entities` (excludes soft-deleted).
+    - `GET /entities/:id` → single entity; 404 if soft-deleted.
     - `POST /entities` → `public.fn_create_entity(p_type, p_name, p_status?, p_currency?, p_country?, p_email?, p_phone?, p_notes?)` returns inserted row.
     - `PATCH /entities/:id` → `public.fn_update_entity(p_id, p_type?, p_name?, p_status?, p_currency?, p_country?, p_email?, p_phone?, p_notes?)` returns updated row.
+    - `DELETE /entities/:id` → soft delete; blocked when referenced by `journal_lines`.
     - `GET /accounts` → `public.accounting_accounts`.
     - `POST /accounts` → `public.fn_create_account(p_code, p_name, p_type, p_currency?, p_parent_id?, p_is_active?)` returns inserted row.
     - `PATCH /accounts/:id` → `public.fn_update_account(p_id, p_code?, p_name?, p_type?, p_currency?, p_parent_id?, p_is_active?)` returns updated row.
     - `POST /journals` → `public.fn_post_journal(p_date, p_reference?, p_description?, p_created_by?, p_lines jsonb[]) -> bigint` returns `journal_id`.
     - `GET /journals` → `public.accounting_journals` (filterable by `date` range).
+    - `GET /journals/:id` → returns `{ journal, lines[] }` using `public.accounting_journals` and `public.accounting_journal_lines`.
+    - `POST /journals/:id/void` → `public.fn_void_journal(p_journal_id, p_created_by, p_reason?) -> bigint` sets `voided_at` and returns `reversal_journal_id`.
     - `GET /ledger` → `public.accounting_ledger_entries` (filterable by `account_id`, `date` range).
     - `GET /trial-balance` → `public.accounting_trial_balance_current`.
-  - Models: `EntityDTO`, `AccountDTO`, `JournalDTO`, `JournalLineDTO`, `LedgerEntryDTO`, `TrialBalanceRowDTO`.
+  - Models: `EntityDTO` (includes `deleted_at`), `AccountDTO`, `JournalDTO` (includes `voided_at`), `JournalLineDTO`, `LedgerEntryDTO`, `TrialBalanceRowDTO`.
 
 - Authentication API
   - Endpoint: `POST /api/v1/auth/login`.
@@ -327,6 +334,7 @@ erDiagram
     text reference
     text description
     bigint created_by
+    timestamptz voided_at
   }
   JOURNAL_LINES {
     bigint id PK
@@ -354,6 +362,7 @@ erDiagram
     text status
     text currency
     text country
+    timestamptz deleted_at
   }
 ```
 
@@ -388,6 +397,35 @@ erDiagram
   - Added RPC helpers: `public.fn_create_entity`, `public.fn_update_entity`, `public.fn_create_account`, `public.fn_update_account`; retained `public.fn_post_journal`.
   - Backend accounting routes updated to read via public views and write via RPC.
   - Note: in production DB, `updated_at` is present on `entities` but may be absent on `accounts` and `journals`; views reflect available columns.
+  
+- v0.6.1 Migration Idempotency & Supabase REST
+  - Updated `backend/migrations/sql/007_accounting_init.sql` to drop `public.accounting_trial_balance_current` before `accounting.v_trial_balance_current` to avoid dependency error (Postgres `2BP01`) when re-running migrations.
+  - Confirmed `009_accounting_api_views.sql` creates/grants public views; ensure Supabase Dashboard → Settings → API → “Exposed schemas” includes `public` so the Data API can read those views.
+  - Validated `/api/v1/accounting/entities` and `/accounts` return 200 after the fix.
+
+- v0.6.2 Accounting Actions & Endpoints (current)
+  - Added `backend/migrations/sql/010_accounting_actions.sql`:
+    - Added `deleted_at` to `accounting.entities` for soft-delete.
+    - Added `voided_at` to `accounting.journals` to mark voided journals.
+    - Created public view `public.accounting_journal_lines` and updated `public.accounting_journals` to include `voided_at`.
+    - Granted `SELECT` on new/updated views to `anon`, `authenticated`, `service_role`.
+    - Added RPC `public.fn_void_journal(p_journal_id, p_created_by, p_reason?) -> bigint` to post a balanced reversal and mark original as voided.
+  - Backend routes:
+    - `GET /api/v1/accounting/entities/:id` (404 if soft-deleted).
+    - `DELETE /api/v1/accounting/entities/:id` (soft delete; blocked if referenced by `journal_lines`).
+    - `GET /api/v1/accounting/journals/:id` returns `{ journal, lines[] }`.
+    - `POST /api/v1/accounting/journals/:id/void` returns `{ reversal_journal_id }`.
+    - `GET /api/v1/accounting/entities` excludes soft-deleted by default.
+
+- v0.6.3 Actions UX alignment & RBAC fallback (current)
+  - Confirmed backend `authorize` middleware allows `X-Role` header fallback in dev and resolves effective role from JWT when present.
+  - Clarified accepted headers: `X-Role` (role name) and optional `x-user-id` used for `created_by` when posting/voiding journals via RPC.
+  - No schema changes; existing `voided_at` on `accounting.journals` is used by clients to hide voided notes from list views.
+  - Endpoint behaviors verified:
+    - `GET /api/v1/accounting/journals/:id` returns `{ journal, lines[] }` as documented; consumed by the View modal.
+    - `POST /api/v1/accounting/journals/:id/void` posts a balanced reversal and returns `{ reversal_journal_id }`, marking original with `voided_at`.
+  - Error responses standardized by global error handler: `{ error: { code, message } }`.
+  - RBAC: only `admin` and `accountant` roles may void; all roles may view.
 
 ## Consistency Notes & Alignment Plan
 
@@ -401,7 +439,8 @@ erDiagram
   - Minor migration note: the local `fn_update_account` definition must include `p_is_active` in its parameter list to match backend calls.
 
 ## References
-- Migrations: `backend/migrations/sql/005_app_init.sql`, `backend/migrations/sql/006_app_seed_admin.sql`, `backend/migrations/sql/007_accounting_init.sql`, `backend/migrations/sql/008_accounting_seed.sql`, `backend/migrations/sql/009_accounting_api_views.sql`.
+- Migrations: `backend/migrations/sql/005_app_init.sql`, `backend/migrations/sql/006_app_seed_admin.sql`, `backend/migrations/sql/007_accounting_init.sql`, `backend/migrations/sql/008_accounting_seed.sql`, `backend/migrations/sql/009_accounting_api_views.sql`, `backend/migrations/sql/010_accounting_actions.sql`.
+- Migrations note: `007_accounting_init.sql` updated to drop `public.accounting_trial_balance_current` before `accounting.v_trial_balance_current` to support idempotent re-runs without dependency errors.
 - Migration runner: `backend/scripts/migrate_app.ts`.
 - Middleware: `backend/src/middleware/pg.ts`, `backend/src/middleware/supabase.ts`.
 - Server: `backend/src/index.ts`, `backend/src/server.ts`.

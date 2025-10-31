@@ -104,13 +104,7 @@ const DMSLogin: React.FC = () => {
                   />
                 </div>
               </div>
-
-              <div className="bg-secondary/10 border border-secondary/20 rounded-lg p-3 text-sm">
-                <p className="font-semibold text-secondary mb-1">Demo Credentials:</p>
-                <p className="text-muted-foreground">Email: demo@mmfs.com</p>
-                <p className="text-muted-foreground">Password: demo123</p>
-              </div>
-
+              
               <Button
                 type="submit"
                 className="w-full bg-secondary hover:bg-secondary/90 text-secondary-foreground shadow-lg"

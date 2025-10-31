@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS accounting.ledger_entries (
 );
 
 -- Simple current trial balance view
+-- Drop dependent public alias first to avoid dependency errors during re-runs
+DROP VIEW IF EXISTS public.accounting_trial_balance_current;
 DROP VIEW IF EXISTS accounting.v_trial_balance_current;
 CREATE VIEW accounting.v_trial_balance_current AS
 SELECT

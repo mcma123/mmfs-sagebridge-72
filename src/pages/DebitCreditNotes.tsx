@@ -9,10 +9,15 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Search, Plus, FileText, TrendingUp, TrendingDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { getJournals, type JournalDTO } from '@/lib/api/accounting';
+import { getJournals, getJournal, voidJournal, type JournalDTO, type JournalLineDTO } from '@/lib/api/accounting';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { getRolesFromToken } from '@/lib/api/auth';
+import { useToast } from '@/hooks/use-toast';
 
 type NoteRow = {
-  id: string;
+  id: string; // display id (DN- / CN-)
+  journalId: number;
   date: string;
   entityType: string;
   entityName: string;
@@ -25,8 +30,13 @@ type NoteRow = {
 
 const DebitCreditNotes = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [journals, setJournals] = useState<JournalDTO[]>([]);
+  const [selected, setSelected] = useState<{ journal: JournalDTO; lines: JournalLineDTO[] } | null>(null);
+  const [confirmVoidId, setConfirmVoidId] = useState<{ id: number; ref: string } | null>(null);
+  const roles = getRolesFromToken();
+  const canVoid = roles.includes('admin') || roles.includes('accountant');
 
   useEffect(() => {
     (async () => {
@@ -56,11 +66,14 @@ const DebitCreditNotes = () => {
 
   const debitNotes: NoteRow[] = useMemo(() => {
     return (journals || [])
+      // Hide voided journals from the list to reflect deletion semantics
+      .filter(j => !j.voided_at)
       .filter(j => (j.reference || '').startsWith('DN-'))
       .map(j => {
         const { amount, currency, reason, policyRef, entityName } = parseAmountFromDescription(j.description);
         return {
           id: j.reference || `DN-${j.id}`,
+          journalId: j.id,
           date: j.date,
           entityType: '-',
           entityName: entityName || '-',
@@ -68,18 +81,21 @@ const DebitCreditNotes = () => {
           reason: reason || 'Debit Note',
           amount,
           currency,
-          status: 'Posted',
+          status: j.voided_at ? 'Voided' : 'Posted',
         };
       });
   }, [journals]);
 
   const creditNotes: NoteRow[] = useMemo(() => {
     return (journals || [])
+      // Hide voided journals from the list to reflect deletion semantics
+      .filter(j => !j.voided_at)
       .filter(j => (j.reference || '').startsWith('CN-'))
       .map(j => {
         const { amount, currency, reason, policyRef, entityName } = parseAmountFromDescription(j.description);
         return {
           id: j.reference || `CN-${j.id}`,
+          journalId: j.id,
           date: j.date,
           entityType: '-',
           entityName: entityName || '-',
@@ -87,7 +103,7 @@ const DebitCreditNotes = () => {
           reason: reason || 'Credit Note',
           amount,
           currency,
-          status: 'Posted',
+          status: j.voided_at ? 'Voided' : 'Posted',
         };
       });
   }, [journals]);
@@ -181,8 +197,31 @@ const DebitCreditNotes = () => {
                             {note.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">View</Button>
+                        <TableCell className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              // Open the modal immediately with a lightweight placeholder
+                              setSelected({
+                                journal: { id: note.journalId, date: note.date, reference: note.id, description: 'Loading…' },
+                                lines: [],
+                              });
+                              try {
+                                const resp = await getJournal(note.journalId);
+                                setSelected(resp);
+                              } catch (err: any) {
+                                console.error('Failed to load journal', err);
+                                toast({ title: 'Could not load', description: 'Failed to fetch journal details.', variant: 'destructive' });
+                                setSelected(null);
+                              }
+                            }}
+                          >
+                            View
+                          </Button>
+                          {canVoid && note.status !== 'Voided' && (
+                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })}>Void</Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -250,8 +289,24 @@ const DebitCreditNotes = () => {
                             {note.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">View</Button>
+                        <TableCell className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                const resp = await getJournal(note.journalId);
+                                setSelected(resp);
+                              } catch (err) {
+                                console.error('Failed to load journal', err);
+                              }
+                            }}
+                          >
+                            View
+                          </Button>
+                          {canVoid && note.status !== 'Voided' && (
+                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })}>Void</Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -262,6 +317,76 @@ const DebitCreditNotes = () => {
           </TabsContent>
         </Tabs>
       </motion.div>
+      {/* View Journal Modal */}
+      <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{selected?.journal?.reference || `Journal #${selected?.journal?.id}`}</DialogTitle>
+            <DialogDescription>
+              {selected?.journal?.date} • {selected?.journal?.description || '-'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Account</TableHead>
+                  <TableHead>Entity</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Debit</TableHead>
+                  <TableHead>Credit</TableHead>
+                  <TableHead>Memo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(selected?.lines || []).map(l => (
+                  <TableRow key={l.id}>
+                    <TableCell>#{l.account_id}</TableCell>
+                    <TableCell>{l.entity_id ? `#${l.entity_id}` : '-'}</TableCell>
+                    <TableCell>{l.date}</TableCell>
+                    <TableCell className="text-green-600">{Number(l.debit || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-red-600">{Number(l.credit || 0).toLocaleString()}</TableCell>
+                    <TableCell>{l.memo || '-'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Void */}
+      <AlertDialog open={!!confirmVoidId} onOpenChange={(open) => !open && setConfirmVoidId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Void this note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Voiding will post a full reversal and mark the original as voided.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmVoidId(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (confirmVoidId) {
+                  try {
+                    await voidJournal(confirmVoidId.id, `Void ${confirmVoidId.ref}`);
+                    toast({ title: 'Note voided', description: `${confirmVoidId.ref} has been voided.` });
+                    setConfirmVoidId(null);
+                    const resp = await getJournals();
+                    setJournals(resp.items || []);
+                  } catch (err) {
+                    console.error('Failed to void journal', err);
+                    toast({ title: 'Void failed', description: 'Could not void the selected note.', variant: 'destructive' });
+                  }
+                }
+              }}
+            >
+              Void
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
@@ -9,7 +9,10 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Search, Plus, Building2, Users, Shield } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { listEntities, type ClientEntity, type CdantEntity, type ReinsurerEntity } from '@/lib/store/entities';
+import { listEntities, removeEntity, type BaseEntity, type ClientEntity, type CdantEntity, type ReinsurerEntity } from '@/lib/store/entities';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { getRolesFromToken } from '@/lib/api/auth';
 
 // Store-derived lists (computed within component for fresh data)
 
@@ -17,9 +20,15 @@ const Entities = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
 
-  const clients = listEntities('Client') as ClientEntity[];
-  const cdants = listEntities('CDANT') as CdantEntity[];
-  const reinsurers = listEntities('Reinsurer') as ReinsurerEntity[];
+  const [refreshTick, setRefreshTick] = useState(0);
+  const clients = useMemo(() => listEntities('Client') as ClientEntity[], [refreshTick]);
+  const cdants = useMemo(() => listEntities('CDANT') as CdantEntity[], [refreshTick]);
+  const reinsurers = useMemo(() => listEntities('Reinsurer') as ReinsurerEntity[], [refreshTick]);
+
+  const [selected, setSelected] = useState<BaseEntity | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const roles = getRolesFromToken();
+  const canDelete = roles.includes('admin') || roles.includes('accountant');
 
   return (
     <MainLayout>
@@ -95,8 +104,11 @@ const Entities = () => {
                             {client.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">View</Button>
+                        <TableCell className="flex gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => setSelected(client)}>View</Button>
+                          {canDelete && (
+                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmDeleteId(String(client.id))}>Delete</Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -136,8 +148,11 @@ const Entities = () => {
                             {cdant.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">View</Button>
+                        <TableCell className="flex gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => setSelected(cdant)}>View</Button>
+                          {canDelete && (
+                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmDeleteId(String(cdant.id))}>Delete</Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -177,8 +192,11 @@ const Entities = () => {
                             {reinsurer.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <Button variant="ghost" size="sm">View</Button>
+                        <TableCell className="flex gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => setSelected(reinsurer)}>View</Button>
+                          {canDelete && (
+                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmDeleteId(String(reinsurer.id))}>Delete</Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -189,6 +207,49 @@ const Entities = () => {
           </TabsContent>
         </Tabs>
       </motion.div>
+      {/* View Entity Modal */}
+      <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{selected?.name}</DialogTitle>
+            <DialogDescription>
+              {selected?.type} • {selected?.status || 'Active'} • {selected?.currency || 'ZAR'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            {selected?.country && (<div><span className="text-muted-foreground">Country:</span> {selected.country}</div>)}
+            {selected?.email && (<div><span className="text-muted-foreground">Email:</span> {selected.email}</div>)}
+            {selected?.phone && (<div><span className="text-muted-foreground">Phone:</span> {selected.phone}</div>)}
+            {selected?.notes && (<div><span className="text-muted-foreground">Notes:</span> {selected.notes}</div>)}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Delete */}
+      <AlertDialog open={!!confirmDeleteId} onOpenChange={(open) => !open && setConfirmDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this entity?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action will remove the entity from your local list. If the entity exists in accounting and is referenced by journals, deletion will be blocked.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmDeleteId(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmDeleteId) {
+                  removeEntity(confirmDeleteId);
+                  setConfirmDeleteId(null);
+                  setRefreshTick((t) => t + 1);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 };
