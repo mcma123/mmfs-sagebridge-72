@@ -35,6 +35,9 @@ async function run() {
   const filesToRun = [
     '005_app_init.sql',
     '006_app_seed_admin.sql',
+    '007_accounting_init.sql',
+    '008_accounting_seed.sql',
+    '009_accounting_api_views.sql',
   ];
   console.log('[migrate_app] Running files:', filesToRun.join(', '));
   for (const fname of filesToRun) {

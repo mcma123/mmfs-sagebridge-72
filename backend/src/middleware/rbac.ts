@@ -58,8 +58,16 @@ export function authorize(required: Role | Role[]) {
     }
 
     const requiredList = Array.isArray(required) ? required.map(normalizeRole) : [normalizeRole(required)];
-    const requiredRank = Math.max(...requiredList.map(roleRank));
-    if (roleRank(effectiveRole) >= requiredRank) return next();
+
+    // Authorization logic:
+    // - If a single role is required, allow users with that role or higher rank.
+    // - If multiple roles are provided, allow if ANY of the user's roles match.
+    const isArrayRequirement = Array.isArray(required);
+    const allowed = isArrayRequirement
+      ? requiredList.some(r => roles.includes(r))
+      : roleRank(effectiveRole) >= roleRank(requiredList[0]);
+
+    if (allowed) return next();
     return res.status(403).json({ error: 'Forbidden', required: requiredList, provided: effectiveRole });
   };
 }

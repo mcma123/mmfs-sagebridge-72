@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
@@ -9,61 +9,88 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Search, Plus, FileText, TrendingUp, TrendingDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { getJournals, type JournalDTO } from '@/lib/api/accounting';
 
-// Sample data
-const debitNotes = [
-  { 
-    id: 'DN-2024-001', 
-    date: '2024-01-15', 
-    entityType: 'Client', 
-    entityName: 'Oceanic Shipping Ltd',
-    policyRef: 'MC-2024-0123',
-    reason: 'Additional premium charge',
-    amount: 5000,
-    currency: 'USD',
-    status: 'Issued'
-  },
-  { 
-    id: 'DN-2024-002', 
-    date: '2024-01-18', 
-    entityType: 'CDANT', 
-    entityName: 'Marine Brokers PTY',
-    policyRef: 'MH-2024-0456',
-    reason: 'Commission adjustment',
-    amount: 1200,
-    currency: 'ZAR',
-    status: 'Applied'
-  },
-];
-
-const creditNotes = [
-  { 
-    id: 'CN-2024-001', 
-    date: '2024-01-12', 
-    entityType: 'Client', 
-    entityName: 'Coastal Freight SA',
-    policyRef: 'MC-2024-0089',
-    reason: 'Premium refund - policy cancelled',
-    amount: 8500,
-    currency: 'ZAR',
-    status: 'Issued'
-  },
-  { 
-    id: 'CN-2024-002', 
-    date: '2024-01-20', 
-    entityType: 'Reinsurer', 
-    entityName: 'Global Reinsurance Corp',
-    policyRef: 'MC-2024-0134',
-    reason: 'Claim adjustment',
-    amount: 3500,
-    currency: 'USD',
-    status: 'Draft'
-  },
-];
+type NoteRow = {
+  id: string;
+  date: string;
+  entityType: string;
+  entityName: string;
+  policyRef: string;
+  reason: string;
+  amount?: number;
+  currency?: string;
+  status: string;
+};
 
 const DebitCreditNotes = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+  const [journals, setJournals] = useState<JournalDTO[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const resp = await getJournals();
+        setJournals(resp.items || []);
+      } catch (err) {
+        // silently ignore for now; in a fuller UX, surface a toast
+        console.error('Failed to load journals', err);
+      }
+    })();
+  }, []);
+
+  function parseAmountFromDescription(desc?: string | null): { currency?: string; amount?: number; reason?: string; policyRef?: string; entityName?: string } {
+    if (!desc) return {};
+    const m = desc.match(/NetDue(?:ToYou)?\s+([A-Z]{3})\s+([0-9]+(?:\.[0-9]+)?)/);
+    const pm = desc.match(/Policy\s+([^;]+)/);
+    const em = desc.match(/Entity\s+([^;]+)/);
+    return {
+      currency: m?.[1],
+      amount: m?.[2] ? Number(m[2]) : undefined,
+      policyRef: pm?.[1]?.trim(),
+      entityName: em?.[1]?.trim(),
+      reason: desc.split(';')[0],
+    };
+  }
+
+  const debitNotes: NoteRow[] = useMemo(() => {
+    return (journals || [])
+      .filter(j => (j.reference || '').startsWith('DN-'))
+      .map(j => {
+        const { amount, currency, reason, policyRef, entityName } = parseAmountFromDescription(j.description);
+        return {
+          id: j.reference || `DN-${j.id}`,
+          date: j.date,
+          entityType: '-',
+          entityName: entityName || '-',
+          policyRef: policyRef || '-',
+          reason: reason || 'Debit Note',
+          amount,
+          currency,
+          status: 'Posted',
+        };
+      });
+  }, [journals]);
+
+  const creditNotes: NoteRow[] = useMemo(() => {
+    return (journals || [])
+      .filter(j => (j.reference || '').startsWith('CN-'))
+      .map(j => {
+        const { amount, currency, reason, policyRef, entityName } = parseAmountFromDescription(j.description);
+        return {
+          id: j.reference || `CN-${j.id}`,
+          date: j.date,
+          entityType: '-',
+          entityName: entityName || '-',
+          policyRef: policyRef || '-',
+          reason: reason || 'Credit Note',
+          amount,
+          currency,
+          status: 'Posted',
+        };
+      });
+  }, [journals]);
 
   return (
     <MainLayout>
@@ -140,7 +167,7 @@ const DebitCreditNotes = () => {
                         <TableCell>{note.policyRef}</TableCell>
                         <TableCell>{note.reason}</TableCell>
                         <TableCell className="text-red-600">
-                          {note.currency} {note.amount.toLocaleString()}
+                          {note.currency || '-'} {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
                         </TableCell>
                         <TableCell>
                           <Badge 
@@ -207,7 +234,7 @@ const DebitCreditNotes = () => {
                         <TableCell>{note.policyRef}</TableCell>
                         <TableCell>{note.reason}</TableCell>
                         <TableCell className="text-green-600">
-                          {note.currency} {note.amount.toLocaleString()}
+                          {note.currency || '-'} {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
                         </TableCell>
                         <TableCell>
                           <Badge 

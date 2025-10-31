@@ -14,6 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ArrowLeft, Save } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import mmfsLogo from '@/assets/mmfs-logo.jpg';
+import { getEntities, getAccounts, postJournal, type AccountDTO, type EntityDTO } from '@/lib/api/accounting';
+import { buildCreditJournal, type CreditNoteFormInput } from '@/lib/accounting/notes';
+import { getAccountingDefaults, saveAccountingDefaults } from '@/lib/store/accountingSettings';
 
 const creditNoteSchema = z.object({
   issuedTo: z.string().min(1, 'Issued to is required'),
@@ -39,6 +42,26 @@ const CreateCreditNote = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const [entities, setEntities] = React.useState<EntityDTO[]>([]);
+  const [accounts, setAccounts] = React.useState<AccountDTO[]>([]);
+  const defaults = React.useMemo(() => getAccountingDefaults(), []);
+  const [selectedEntityId, setSelectedEntityId] = React.useState<number | null>(null);
+  const [apAccountId, setApAccountId] = React.useState<number | null>(defaults.apAccountId ?? null);
+  const [premiumRefundAccountId, setPremiumRefundAccountId] = React.useState<number | null>(defaults.premiumRefundAccountId ?? null);
+  const [deductionIncomeAccountId, setDeductionIncomeAccountId] = React.useState<number | null>(defaults.deductionIncomeAccountId ?? null);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const [entitiesResp, accountsResp] = await Promise.all([getEntities(), getAccounts()]);
+        setEntities(entitiesResp.items || []);
+        setAccounts(accountsResp.items || []);
+      } catch (err: any) {
+        toast({ title: 'Failed to load accounting data', description: String(err?.message || err) });
+      }
+    })();
+  }, [toast]);
+
   const form = useForm<CreditNoteForm>({
     resolver: zodResolver(creditNoteSchema),
     defaultValues: {
@@ -56,22 +79,43 @@ const CreateCreditNote = () => {
   const deductionAmount = (yourShareAmount * deductionPercentage) / 100;
   const netDueToYou = yourShareAmount - deductionAmount;
 
-  const onSubmit = (data: CreditNoteForm) => {
-    console.log('Credit Note Data:', {
-      ...data,
-      calculations: {
-        yourShareAmount,
-        deductionAmount,
-        netDueToYou,
-      },
-    });
+  const onSubmit = async (data: CreditNoteForm) => {
+    try {
+      if (!apAccountId || !premiumRefundAccountId || !deductionIncomeAccountId) {
+        toast({ title: 'Missing account selections', description: 'Please select AP, Premium Refund, and Deduction Income accounts.' });
+        return;
+      }
 
-    toast({
-      title: 'Credit Note Created',
-      description: 'The credit note has been created successfully.',
-    });
+      const postDateISO = new Date().toISOString().slice(0, 10);
+      const formInput = data as unknown as CreditNoteFormInput;
+      const payload = buildCreditJournal(
+        formInput,
+        selectedEntityId ?? null,
+        {
+          apAccountId,
+          premiumRefundAccountId,
+          deductionIncomeAccountId,
+        },
+        postDateISO,
+      );
 
-    navigate('/debit-credit-notes');
+      const resp = await postJournal(payload, 'accountant', 1);
+      // Save defaults for next time
+      saveAccountingDefaults({
+        apAccountId,
+        premiumRefundAccountId,
+        deductionIncomeAccountId,
+      });
+
+      toast({
+        title: 'Credit Note Posted',
+        description: `Journal #${resp.journal_id} created successfully.`,
+      });
+
+      navigate('/debit-credit-notes');
+    } catch (err: any) {
+      toast({ title: 'Failed to post credit note', description: String(err?.message || err) });
+    }
   };
 
   return (
@@ -175,6 +219,23 @@ const CreateCreditNote = () => {
                     </FormItem>
                   )}
                 />
+
+                {/* Accounting Entity selection */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <FormLabel>Accounting Entity (optional)</FormLabel>
+                    <Select onValueChange={(val) => setSelectedEntityId(Number(val))} value={selectedEntityId ? String(selectedEntityId) : undefined}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select entity" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {entities.map(e => (
+                          <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.type})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -351,6 +412,52 @@ const CreateCreditNote = () => {
                     </FormItem>
                   )}
                 />
+
+                {/* Accounting Accounts selection */}
+                <div className="border rounded-md p-4 space-y-3">
+                  <FormLabel className="font-semibold">Accounting Accounts</FormLabel>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <FormLabel>Accounts Payable (AP)</FormLabel>
+                      <Select onValueChange={(val) => setApAccountId(Number(val))} value={apAccountId ? String(apAccountId) : undefined}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select AP account" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accounts.map(a => (
+                            <SelectItem key={a.id} value={String(a.id)}>{a.code} — {a.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <FormLabel>Premium Refund</FormLabel>
+                      <Select onValueChange={(val) => setPremiumRefundAccountId(Number(val))} value={premiumRefundAccountId ? String(premiumRefundAccountId) : undefined}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Premium Refund account" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accounts.map(a => (
+                            <SelectItem key={a.id} value={String(a.id)}>{a.code} — {a.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <FormLabel>Deduction Income</FormLabel>
+                      <Select onValueChange={(val) => setDeductionIncomeAccountId(Number(val))} value={deductionIncomeAccountId ? String(deductionIncomeAccountId) : undefined}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Deduction Income account" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accounts.map(a => (
+                            <SelectItem key={a.id} value={String(a.id)}>{a.code} — {a.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 

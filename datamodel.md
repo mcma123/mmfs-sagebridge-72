@@ -19,7 +19,7 @@ Purpose: centralize the application’s data model across database schemas, serv
 ## Environment & Connectivity (Runtime)
 - Connectors:
   - `req.pg` (Postgres Pool) for `app.*` auth tables and role resolution.
-  - `req.db` (Supabase client) for `dms.*`, `accounting.*`, and `banking.*` tables.
+  - `req.db` (Supabase client) for `dms.*`, `banking.*`, and accounting access via public views/RPC (`public.accounting_*` views, `public.fn_*` functions). Core writes use RPC; reads use public views. Server-side code may still query `accounting.*` directly where needed.
 - Env vars (Postgres):
   - Preferred single URL: `DATABASE_URL` or `SUPABASE_DB_URL` (e.g., `postgresql://<user>:<urlencoded-password>@<host>:5432/<db>?sslmode=require`).
   - Fallback discrete vars: `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` (+ optional `PGSSL=true`).
@@ -139,14 +139,26 @@ Notes:
 - Passwords hashed via `bcryptjs`; backend verifies on login.
 - Admin seeding ensures an initial active admin user with the `admin` role.
 
-### Schema: `accounting` (used by routes; migrations maintained separately)
+### Schema: `accounting` (source tables)
 
-- `entities` (`id`, `type`, `name`, `status`, `currency`, `country`, `email`, `phone`, `notes`, timestamps)
-- `accounts` (`id`, `code` UNIQUE, `name`, `type`, `currency`, `parent_id`, `is_active`, timestamps)
-- `journals` (`id`, `date`, `reference`, `description`, `created_by`, timestamps)
-- `journal_lines` (`id`, `journal_id`, `account_id`, `entity_id`, `date`, `debit`, `credit`, `memo`)
-- `ledger_entries` (`id`, `account_id`, `journal_line_id`, `date`, `debit`, `credit`, `balance_after`, timestamps)
-- Reporting tables and views: `trial_balance_snapshots`, `v_trial_balance_current`, etc.
+- `entities` (`id`, `type`, `name`, `status`, `currency`, `country`, `email`, `phone`, `notes`, `created_at`, `updated_at`)
+- `accounts` (`id`, `code` UNIQUE, `name`, `type`, `currency`, `parent_id`, `is_active`, `created_at`)
+  - Note: `updated_at` may be absent in the deployed database.
+- `journals` (`id`, `date`, `reference`, `description`, `created_by`, `created_at`)
+  - Note: `updated_at` may be absent in the deployed database.
+- `journal_lines` (`id`, `journal_id`, `account_id`, `entity_id`, `date`, `debit`, `credit`, `memo`, `created_at`)
+- `ledger_entries` (`id`, `account_id`, `journal_line_id`, `date`, `debit`, `credit`, `balance_after`, `created_at`)
+- Reporting view: `v_trial_balance_current` (current balances per account).
+
+### Public Views (Accounting API surface)
+
+- `public.accounting_entities` → selects all columns from `accounting.entities`.
+- `public.accounting_accounts` → selects `id, code, name, type, currency, parent_id, is_active, created_at` from `accounting.accounts`.
+- `public.accounting_journals` → selects `id, date, reference, description, created_by, created_at` from `accounting.journals`.
+- `public.accounting_ledger_entries` → selects `id, account_id, journal_line_id, date, debit, credit, balance_after, created_at` from `accounting.ledger_entries`.
+- `public.accounting_trial_balance_current` → alias for `accounting.v_trial_balance_current`.
+
+Grants: `SELECT` on these views to `anon`, `authenticated`, and `service_role` for Supabase Data API access.
 
 ## Service Models
 
@@ -165,8 +177,18 @@ Notes:
 
 - Accounting API
   - Endpoints: `/api/v1/accounting/*`.
+  - Reads use public views; writes use RPC functions:
+    - `GET /entities` → `public.accounting_entities`.
+    - `POST /entities` → `public.fn_create_entity(p_type, p_name, p_status?, p_currency?, p_country?, p_email?, p_phone?, p_notes?)` returns inserted row.
+    - `PATCH /entities/:id` → `public.fn_update_entity(p_id, p_type?, p_name?, p_status?, p_currency?, p_country?, p_email?, p_phone?, p_notes?)` returns updated row.
+    - `GET /accounts` → `public.accounting_accounts`.
+    - `POST /accounts` → `public.fn_create_account(p_code, p_name, p_type, p_currency?, p_parent_id?, p_is_active?)` returns inserted row.
+    - `PATCH /accounts/:id` → `public.fn_update_account(p_id, p_code?, p_name?, p_type?, p_currency?, p_parent_id?, p_is_active?)` returns updated row.
+    - `POST /journals` → `public.fn_post_journal(p_date, p_reference?, p_description?, p_created_by?, p_lines jsonb[]) -> bigint` returns `journal_id`.
+    - `GET /journals` → `public.accounting_journals` (filterable by `date` range).
+    - `GET /ledger` → `public.accounting_ledger_entries` (filterable by `account_id`, `date` range).
+    - `GET /trial-balance` → `public.accounting_trial_balance_current`.
   - Models: `EntityDTO`, `AccountDTO`, `JournalDTO`, `JournalLineDTO`, `LedgerEntryDTO`, `TrialBalanceRowDTO`.
-  - RPC: `fn_post_journal(...) -> bigint` – posts a balanced journal and writes ledger entries.
 
 - Authentication API
   - Endpoint: `POST /api/v1/auth/login`.
@@ -361,14 +383,25 @@ erDiagram
   - Dev TLS relaxed (`NODE_TLS_REJECT_UNAUTHORIZED=0`) when SSL is required, avoiding self-signed chain errors with Supabase in local dev.
   - Verified login endpoint returns JWT and role mapping for seeded admin.
 
+- v0.6 Public Accounting Views & RPC (current)
+  - Added `009_accounting_api_views.sql` defining public views: `accounting_entities`, `accounting_accounts`, `accounting_journals`, `accounting_ledger_entries`, `accounting_trial_balance_current`.
+  - Added RPC helpers: `public.fn_create_entity`, `public.fn_update_entity`, `public.fn_create_account`, `public.fn_update_account`; retained `public.fn_post_journal`.
+  - Backend accounting routes updated to read via public views and write via RPC.
+  - Note: in production DB, `updated_at` is present on `entities` but may be absent on `accounts` and `journals`; views reflect available columns.
+
 ## Consistency Notes & Alignment Plan
 
 - Auth schema: complete – backend uses `app.*`; seeding in `006_app_seed_admin.sql` ensures roles and an initial admin. Legacy `auth.*` not used by routes.
 - DMS schema namespacing: backend queries `dms.folders`/`dms.documents` via `req.db`. Ensure migrations maintain schema prefixing and indexes (e.g., trigram GIN on `path`).
 - Columns parity: `dms.documents` includes `metadata_json` and backend expects it for metadata updates.
+- Accounting access:
+  - Core accounting routes use public views (`public.accounting_*`) for reads and RPC functions for writes; this allows Supabase Data API access without exposing the `accounting` schema.
+  - Banking Import currently resolves account IDs by code using `accounting.accounts` directly in server-side code; acceptable for backend, but could be refactored to use `public.accounting_accounts` for consistency.
+  - Ensure migrations remain aligned with deployed schema: `accounts`/`journals` may not have `updated_at`; `entities` does.
+  - Minor migration note: the local `fn_update_account` definition must include `p_is_active` in its parameter list to match backend calls.
 
 ## References
-- Migrations: `backend/migrations/sql/005_app_init.sql`, `backend/migrations/sql/006_app_seed_admin.sql`.
+- Migrations: `backend/migrations/sql/005_app_init.sql`, `backend/migrations/sql/006_app_seed_admin.sql`, `backend/migrations/sql/007_accounting_init.sql`, `backend/migrations/sql/008_accounting_seed.sql`, `backend/migrations/sql/009_accounting_api_views.sql`.
 - Migration runner: `backend/scripts/migrate_app.ts`.
 - Middleware: `backend/src/middleware/pg.ts`, `backend/src/middleware/supabase.ts`.
 - Server: `backend/src/index.ts`, `backend/src/server.ts`.
