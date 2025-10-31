@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Plus, Search, MoreVertical, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,34 +22,49 @@ import { Badge } from '@/components/ui/badge';
 
 const ManageUsers = () => {
   const navigate = useNavigate();
+  const [users, setUsers] = useState<Array<any>>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock user data
-  const users = [
-    {
-      id: 1,
-      name: 'John Doe',
-      email: 'john@example.com',
-      role: 'Administrator',
-      status: 'Active',
-      lastLogin: '2024-03-23 14:30',
-    },
-    {
-      id: 2,
-      name: 'Jane Smith',
-      email: 'jane@example.com',
-      role: 'Manager',
-      status: 'Active',
-      lastLogin: '2024-03-23 12:15',
-    },
-    {
-      id: 3,
-      name: 'Mike Johnson',
-      email: 'mike@example.com',
-      role: 'User',
-      status: 'Inactive',
-      lastLogin: '2024-03-22 09:45',
-    },
-  ];
+  async function fetchUsers() {
+    setLoading(true); setError(null);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch('/api/v1/administration/users', {
+        headers: { 'Authorization': token ? `Bearer ${token}` : '' },
+      });
+      if (!res.ok) throw new Error('Failed to load users');
+      const data = await res.json();
+      const items = (data.items || []).map((u: any) => ({
+        id: u.id,
+        name: u.display_name || '',
+        email: u.email,
+        roles: u.roles,
+        status: u.is_active ? 'Active' : 'Inactive',
+        lastLogin: u.last_login_at || '-',
+      }));
+      setUsers(items);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load users');
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { fetchUsers(); }, []);
+
+  async function deactivateUser(id: number) {
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch(`/api/v1/administration/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': token ? `Bearer ${token}` : '' },
+        body: JSON.stringify({ is_active: false }),
+      });
+      if (!res.ok) throw new Error('Failed to deactivate');
+      await fetchUsers();
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
   return (
     <motion.div
@@ -119,7 +134,7 @@ const ManageUsers = () => {
               <TableRow key={user.id}>
                 <TableCell className="font-medium">{user.name}</TableCell>
                 <TableCell>{user.email}</TableCell>
-                <TableCell>{user.role}</TableCell>
+                <TableCell>{Array.isArray(user.roles) ? user.roles.join(', ') : '-'}</TableCell>
                 <TableCell>
                   <Badge 
                     variant={user.status === 'Active' ? 'default' : 'secondary'}
@@ -137,9 +152,9 @@ const ManageUsers = () => {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem>Edit User</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => navigate(`/administration/users/add`, { state: { editUser: user } })}>Edit User</DropdownMenuItem>
                       <DropdownMenuItem>Change Password</DropdownMenuItem>
-                      <DropdownMenuItem className="text-red-600">Deactivate</DropdownMenuItem>
+                      <DropdownMenuItem className="text-red-600" onClick={() => deactivateUser(user.id)}>Deactivate</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -152,4 +167,4 @@ const ManageUsers = () => {
   );
 };
 
-export default ManageUsers; 
+export default ManageUsers;

@@ -6,6 +6,7 @@ import { EyeIcon, EyeOffIcon, ArrowLeft } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle } from 'lucide-react';
+import { login } from '@/lib/api/auth';
 
 const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -19,22 +20,21 @@ const Login: React.FC = () => {
   
   const navigate = useNavigate();
   
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-    
-    // Simulate API call to Frappe ERPNext
-    setTimeout(() => {
+    try {
+      const res = await login(email, password);
+      localStorage.setItem('accessToken', res.accessToken);
+      // Optionally store user for display
+      localStorage.setItem('currentUser', JSON.stringify(res.user));
       setLoading(false);
-      
-      // For demo purposes, we'll just navigate if email includes '@'
-      if (email.includes('@') && password.length >= 6) {
-        navigate('/dashboard');
-      } else {
-        setError('Invalid email or password. Please try again.');
-      }
-    }, 1500);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setLoading(false);
+      setError(err?.message || 'Login failed');
+    }
   };
   
   return (
@@ -213,28 +213,7 @@ const Login: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* Demo login credentials */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.4 }}
-        className="mt-4 sm:mt-6 sm:mx-auto sm:w-full sm:max-w-md"
-      >
-        <div className="bg-blue-50 bg-opacity-70 py-3 sm:py-4 px-4 sm:px-6 rounded-md shadow-sm border border-[#103E7C] border-opacity-20">
-          <h3 className="text-center text-xs sm:text-sm font-medium text-[#0a3f72] mb-2">Demo Credentials</h3>
-          <div className={`${isMobile ? 'flex flex-col space-y-2' : 'grid grid-cols-2 gap-2'} text-sm`}>
-            <div className="bg-white px-3 py-2 rounded">
-              <span className="block text-xs text-gray-500">Email</span>
-              <span className="font-medium text-[#0a3f72] text-xs sm:text-sm">demo@contas.co.za</span>
-            </div>
-            <div className="bg-white px-3 py-2 rounded">
-              <span className="block text-xs text-gray-500">Password</span>
-              <span className="font-medium text-[#0a3f72] text-xs sm:text-sm">demo123456</span>
-            </div>
-          </div>
-          <p className="text-xs text-center mt-2 text-gray-600">Use these credentials to explore the demo application</p>
-        </div>
-      </motion.div>
+      {/* Login helper info removed; real authentication will be used */}
     </div>
   );
 };

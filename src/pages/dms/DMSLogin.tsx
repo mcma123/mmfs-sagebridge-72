@@ -16,9 +16,8 @@ const DMSLogin: React.FC = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Demo credentials
-    if (email === 'demo@mmfs.com' && password === 'demo123') {
+    const isValid = email.includes('@') && password.length >= 6;
+    if (isValid) {
       toast({
         title: 'Login Successful',
         description: 'Welcome to MMFS Document Management System',
@@ -27,7 +26,7 @@ const DMSLogin: React.FC = () => {
     } else {
       toast({
         title: 'Login Failed',
-        description: 'Invalid credentials. Try demo@mmfs.com / demo123',
+        description: 'Invalid email or password. Please try again.',
         variant: 'destructive',
       });
     }

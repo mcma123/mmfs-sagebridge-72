@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -20,10 +20,10 @@ import { useToast } from '@/components/ui/use-toast';
 const userSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
-  role: z.enum(['Administrator', 'Manager', 'User']),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  confirmPassword: z.string(),
-}).refine((data) => data.password === data.confirmPassword, {
+  role: z.enum(['admin', 'accountant', 'editor', 'viewer']),
+  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
+  confirmPassword: z.string().optional(),
+}).refine((data) => (data.password || '') === (data.confirmPassword || ''), {
   message: "Passwords don't match",
   path: ["confirmPassword"],
 });
@@ -32,6 +32,8 @@ type UserFormData = z.infer<typeof userSchema>;
 
 const AddUser = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const editUser = (location.state as any)?.editUser as { id: number, name: string, email: string, roles: string[] } | undefined;
   const { toast } = useToast();
   const {
     register,
@@ -42,26 +44,32 @@ const AddUser = () => {
   } = useForm<UserFormData>({
     resolver: zodResolver(userSchema),
     defaultValues: {
-      role: 'User',
+      role: (editUser?.roles?.[0] as any) || 'viewer',
+      name: editUser?.name || '',
+      email: editUser?.email || '',
     },
   });
 
   const onSubmit = async (data: UserFormData) => {
     try {
-      // TODO: Implement user creation logic
-      console.log('Form data:', data);
-      
-      toast({
-        title: 'Success',
-        description: 'User has been created successfully',
-        variant: 'default',
+      const token = localStorage.getItem('accessToken');
+      if (!token) throw new Error('Not authenticated');
+      const payload: any = editUser ? { name: data.name, email: data.email, roles: [data.role] } : { name: data.name, email: data.email, password: data.password, roles: [data.role] };
+      const res = await fetch(`/api/v1/administration/users${editUser ? `/${editUser.id}` : ''}`, {
+        method: editUser ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload),
       });
-      
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || 'Request failed');
+      }
+      toast({ title: 'Success', description: editUser ? 'User updated successfully' : 'User has been created successfully' });
       navigate('/administration/users');
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: 'Error',
-        description: 'Failed to create user. Please try again.',
+        description: error?.message || 'Failed to process request. Please try again.',
         variant: 'destructive',
       });
     }
@@ -88,8 +96,8 @@ const AddUser = () => {
 
       {/* Header Section */}
       <div className="bg-blue-600 rounded-lg p-6 shadow-lg">
-        <h1 className="text-2xl font-semibold text-white mb-2">Add New User</h1>
-        <p className="text-white/80">Create a new user account with specific roles and permissions</p>
+        <h1 className="text-2xl font-semibold text-white mb-2">{editUser ? 'Edit User' : 'Add New User'}</h1>
+        <p className="text-white/80">{editUser ? 'Update user information, role, or password' : 'Create a new user account with specific roles and permissions'}</p>
       </div>
 
       {/* Form Section */}
@@ -130,15 +138,16 @@ const AddUser = () => {
               <Label htmlFor="role">Role</Label>
               <Select
                 onValueChange={(value) => setValue('role', value as UserFormData['role'])}
-                defaultValue="User"
+                defaultValue={(editUser?.roles?.[0] as any) || 'viewer'}
               >
                 <SelectTrigger className={errors.role ? 'border-red-500' : ''}>
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Administrator">Administrator</SelectItem>
-                  <SelectItem value="Manager">Manager</SelectItem>
-                  <SelectItem value="User">User</SelectItem>
+                  <SelectItem value="admin">Administrator</SelectItem>
+                  <SelectItem value="accountant">Accountant</SelectItem>
+                  <SelectItem value="editor">Editor</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
                 </SelectContent>
               </Select>
               {errors.role && (
@@ -187,7 +196,7 @@ const AddUser = () => {
               Cancel
             </Button>
             <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
-              Create User
+              {editUser ? 'Update User' : 'Create User'}
             </Button>
           </div>
         </form>
@@ -196,4 +205,4 @@ const AddUser = () => {
   );
 };
 
-export default AddUser; 
+export default AddUser;

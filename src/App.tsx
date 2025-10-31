@@ -51,6 +51,7 @@ import AdjustOpeningBalance from './pages/accounting/AdjustOpeningBalance';
 import TaxReports from './pages/accounting/TaxReports';
 import PeriodEnd from './pages/accounting/PeriodEnd';
 import AccountingDocuments from './pages/accounting/Documents';
+import RoleGuard from '@/components/RoleGuard';
 
 const queryClient = new QueryClient();
 
@@ -77,12 +78,12 @@ const App = () => (
               <Route path="/banking" element={<Banking />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Settings />} />
-              <Route path="/administration" element={<Administration />} />
-              <Route path="/administration/users" element={<ManageUsers />} />
-              <Route path="/administration/users/add" element={<AddUser />} />
-              <Route path="/administration/access" element={<UserAccess />} />
-              <Route path="/administration/change-password" element={<ChangePassword />} />
-              <Route path="/administration/my-account" element={<MyAccount />} />
+              <Route path="/administration" element={<RoleGuard allow={['admin']}><Administration /></RoleGuard>} />
+              <Route path="/administration/users" element={<RoleGuard allow={['admin']}><ManageUsers /></RoleGuard>} />
+              <Route path="/administration/users/add" element={<RoleGuard allow={['admin']}><AddUser /></RoleGuard>} />
+              <Route path="/administration/access" element={<RoleGuard allow={['admin']}><UserAccess /></RoleGuard>} />
+              <Route path="/administration/change-password" element={<RoleGuard allow={['admin']}><ChangePassword /></RoleGuard>} />
+              <Route path="/administration/my-account" element={<RoleGuard allow={['admin']}><MyAccount /></RoleGuard>} />
               
               {/* Accounting Routes */}
               <Route path="/accounting" element={<Accounting />} />
