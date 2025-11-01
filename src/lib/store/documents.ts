@@ -27,6 +27,12 @@ export interface DocumentItem {
   createdAt: string;
 }
 
+export interface UploadFolderResult {
+  createdFolderIds: number[];
+  createdDocIds: number[];
+  skippedDocuments: string[];
+}
+
 export interface AuditLog {
   id: string;
   action: string;
@@ -58,6 +64,10 @@ export function getDataSource(): DataSource { return DATA_SOURCE; }
 function nowISO() { return new Date().toISOString(); }
 
 function nextId(store: StoreShape) { store.seq += 1; return store.seq; }
+
+function normalizeName(value: string): string {
+  return value.trim().toLowerCase();
+}
 
 export function loadStore(): StoreShape {
   const raw = localStorage.getItem(LS_KEY);
@@ -140,6 +150,109 @@ export function createFolder(parentId: number, name: string, type: NodeType = 'g
   logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: 'folder.create', entityType: 'folder', entityId: id, metadata: { name, type, parentId }, at: nowISO() });
   persist(s);
   return folder;
+}
+
+
+export function ensureChildFolder(parentId: number, name: string, type: NodeType = 'generic'): { folder: Folder; created: boolean } {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Folder name cannot be empty');
+  const s = loadStore();
+  const parent = s.folders[parentId];
+  if (!parent) throw new Error('Parent folder not found');
+  const normalized = normalizeName(trimmed);
+  const existing = Object.values(s.folders).find((f) => f.parentId === parentId && normalizeName(f.name) === normalized);
+  if (existing) {
+    return { folder: existing, created: false };
+  }
+  const folder = createFolder(parentId, trimmed, type);
+  return { folder, created: true };
+}
+
+export function ensurePath(parentId: number, segments: string[], type: NodeType = 'generic'): { folder: Folder; createdFolderIds: number[] } {
+  const baseFolder = getFolder(parentId);
+  if (!baseFolder) throw new Error('Parent folder not found');
+
+  let currentFolder = baseFolder;
+  const created: number[] = [];
+
+  segments
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .forEach((segment) => {
+      const { folder, created: wasCreated } = ensureChildFolder(currentFolder.id, segment, type);
+      currentFolder = folder;
+      if (wasCreated) {
+        created.push(folder.id);
+      }
+    });
+
+  return { folder: currentFolder, createdFolderIds: created };
+}
+
+export function uploadFolderStructure(parentId: number, files: File[], uploadedBy?: string): UploadFolderResult {
+  const createdFolderIds = new Set<number>();
+  const createdDocIds: number[] = [];
+  const skippedDocuments: string[] = [];
+  const grouped = new Map<number, File[]>();
+  const pathCache = new Map<string, number>();
+
+  const ensureWithCache = (baseId: number, segments: string[]): number => {
+    if (segments.length === 0) return baseId;
+    const key = `${baseId}::${segments.map((s) => normalizeName(s)).join('/')}`;
+    if (pathCache.has(key)) {
+      return pathCache.get(key)!;
+    }
+    const { folder, createdFolderIds: newlyCreated } = ensurePath(baseId, segments);
+    newlyCreated.forEach((id) => createdFolderIds.add(id));
+    pathCache.set(key, folder.id);
+    return folder.id;
+  };
+
+  files.forEach((file) => {
+    const relPath = (file as any).webkitRelativePath as string | undefined;
+    const relative = relPath || file.name;
+    const parts = relative.split(/[\\/]/).filter(Boolean);
+    const folderSegments = parts.slice(0, Math.max(parts.length - 1, 0));
+    const targetFolderId = ensureWithCache(parentId, folderSegments);
+    const bucket = grouped.get(targetFolderId);
+    if (bucket) {
+      bucket.push(file);
+    } else {
+      grouped.set(targetFolderId, [file]);
+    }
+  });
+
+  grouped.forEach((fileList, folderId) => {
+    const snapshot = loadStore();
+    const existingNames = new Set(
+      Object.values(snapshot.documents)
+        .filter((d) => d.folderId === folderId)
+        .map((d) => normalizeName(d.name)),
+    );
+
+    const toUpload = fileList.filter((file) => {
+      const name = normalizeName(file.name);
+      if (existingNames.has(name)) {
+        const relPath = (file as any).webkitRelativePath as string | undefined;
+        skippedDocuments.push(relPath || file.name);
+        return false;
+      }
+      existingNames.add(name);
+      return true;
+    });
+
+    if (toUpload.length === 0) return;
+    const created = uploadDocuments(folderId, toUpload, uploadedBy);
+    created.forEach((doc) => {
+      createdDocIds.push(doc.id);
+    });
+  });
+
+  return {
+    createdFolderIds: Array.from(createdFolderIds),
+    createdDocIds,
+    skippedDocuments,
+  };
 }
 
 export function renameFolder(id: number, name: string) {

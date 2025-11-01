@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Upload, Search, FolderOpen, FileText, Download, Eye, Trash2, Filter, ChevronRight, Plus, Move, Pencil, Share2, LayoutGrid, List } from 'lucide-react';
+import { Upload, Search, FolderOpen, FileText, Download, Eye, Trash2, Filter, ChevronRight, Plus, Move, Pencil, Share2, LayoutGrid, List, FolderUp } from 'lucide-react';
 import {
   getRootFolderId,
   getBreadcrumb,
@@ -15,6 +15,7 @@ import {
   createFolder,
   renameFolder,
   uploadDocuments,
+  uploadFolderStructure,
   removeFolder,
   removeDocument,
   getFolder,
@@ -31,6 +32,7 @@ const Documents: React.FC = () => {
   const [role, setRole] = useState<Role>('Editor');
   const [refreshKey, setRefreshKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setDocumentsNamespace('dms-documents-store');
@@ -39,6 +41,14 @@ const Documents: React.FC = () => {
     const savedRole = localStorage.getItem('user-role') as Role | null;
     if (savedRole === 'Admin' || savedRole === 'Editor' || savedRole === 'Viewer') {
       setRole(savedRole);
+    }
+  }, []);
+
+  useEffect(() => {
+    const input = folderInputRef.current;
+    if (input) {
+      input.setAttribute('webkitdirectory', '');
+      input.setAttribute('directory', '');
     }
   }, []);
 
@@ -152,11 +162,37 @@ const Documents: React.FC = () => {
     fileInputRef.current?.click();
   }
 
+  function uploadFolder() {
+    if (!canEdit) return;
+    trackEvent('upload_folder_click', { module: 'dms', folderId: currentFolderId });
+    folderInputRef.current?.click();
+  }
+
   function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     trackEvent('document_upload', { module: 'dms', folderId: currentFolderId, count: files.length });
     uploadDocuments(currentFolderId, Array.from(files), 'You');
+    setRefreshKey((x) => x + 1);
+    e.target.value = '';
+  }
+
+  function onFolderSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const fileList = Array.from(files);
+    const result = uploadFolderStructure(currentFolderId, fileList, 'You');
+    trackEvent('document_folder_upload', {
+      module: 'dms',
+      folderId: currentFolderId,
+      fileCount: fileList.length,
+      createdFolders: result.createdFolderIds.length,
+      createdDocuments: result.createdDocIds.length,
+      skippedDocuments: result.skippedDocuments.length,
+    });
+    if (result.skippedDocuments.length > 0) {
+      alert(`Skipped ${result.skippedDocuments.length} item(s) because documents with the same name already exist.`);
+    }
     setRefreshKey((x) => x + 1);
     e.target.value = '';
   }
@@ -191,6 +227,10 @@ const Documents: React.FC = () => {
             <Button className="bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2" onClick={uploadFiles} disabled={!canEdit}>
               <Upload className="h-4 w-4" />
               Upload
+            </Button>
+            <Button className="bg-secondary hover:bg-secondary/90 text-secondary-foreground gap-2" onClick={uploadFolder} disabled={!canEdit}>
+              <FolderUp className="h-4 w-4" />
+              Upload Folder
             </Button>
           </div>
         </div>
@@ -310,6 +350,7 @@ const Documents: React.FC = () => {
 
         {/* Hidden file input */}
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFileSelected} />
+        <input ref={folderInputRef} type="file" multiple className="hidden" onChange={onFolderSelected} />
       </motion.div>
     </DMSLayout>
   );
