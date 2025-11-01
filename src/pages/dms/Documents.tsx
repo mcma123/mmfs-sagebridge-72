@@ -20,6 +20,9 @@ import {
   removeDocument,
   getFolder,
   setDocumentsNamespace,
+  getDocumentBlob,
+  createBlobUrl,
+  hasDocumentBlob,
 } from '@/lib/store/documents';
 import { trackEvent } from '@/lib/telemetry';
 
@@ -197,6 +200,73 @@ const Documents: React.FC = () => {
     e.target.value = '';
   }
 
+  function handleViewDocument(docId: number, docName: string) {
+    trackEvent('document_view', { module: 'dms', id: docId });
+
+    // Check if file blob exists
+    if (!hasDocumentBlob(docId)) {
+      alert('File data not available. The file may have been uploaded in a previous session. Please upload the file again.');
+      return;
+    }
+
+    // Get the file blob
+    const file = getDocumentBlob(docId);
+    if (!file) {
+      alert('Unable to retrieve file data.');
+      return;
+    }
+
+    // Create blob URL and open in new tab
+    const blobUrl = createBlobUrl(file);
+    const newTab = window.open(blobUrl, '_blank');
+
+    // If popup was blocked, show alert
+    if (!newTab) {
+      alert('Popup blocked. Please allow popups to view files.');
+      // Clean up blob URL if tab didn't open
+      URL.revokeObjectURL(blobUrl);
+      return;
+    }
+
+    // Clean up blob URL after a delay (tab should have loaded by then)
+    setTimeout(() => {
+      URL.revokeObjectURL(blobUrl);
+    }, 1000);
+  }
+
+  function handleDownloadDocument(docId: number, docName: string) {
+    trackEvent('document_download', { module: 'dms', id: docId });
+
+    // Check if file blob exists
+    if (!hasDocumentBlob(docId)) {
+      alert('File data not available. The file may have been uploaded in a previous session. Please upload the file again.');
+      return;
+    }
+
+    // Get the file blob
+    const file = getDocumentBlob(docId);
+    if (!file) {
+      alert('Unable to retrieve file data.');
+      return;
+    }
+
+    // Create blob URL
+    const blobUrl = createBlobUrl(file);
+
+    // Create temporary anchor element and trigger download
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = docName; // Use the original filename
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Clean up blob URL
+    setTimeout(() => {
+      URL.revokeObjectURL(blobUrl);
+    }, 100);
+  }
+
   return (
     <DMSLayout>
       <motion.div
@@ -336,8 +406,22 @@ const Documents: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 ml-4">
-                        <Button size="icon" variant="ghost"><Eye className="h-4 w-4" /></Button>
-                        <Button size="icon" variant="ghost"><Download className="h-4 w-4" /></Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleViewDocument(doc.id, doc.name)}
+                          title="View document"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleDownloadDocument(doc.id, doc.name)}
+                          title="Download document"
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
                         <Button size="icon" variant="ghost" disabled={!canEdit} onClick={() => { if (!canEdit) return; trackEvent('document_delete', { module: 'dms', id: doc.id }); removeDocument(doc.id); setRefreshKey((x) => x + 1); }}><Trash2 className="h-4 w-4 text-red-500 dark:brightness-110" /></Button>
                       </div>
                     </motion.div>

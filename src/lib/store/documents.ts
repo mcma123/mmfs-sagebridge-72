@@ -56,6 +56,10 @@ let LS_KEY = 'dms-documents-store';
 type DataSource = 'local' | 'api';
 let DATA_SOURCE: DataSource = 'local';
 
+// In-memory file blob storage (temporary - lost on page refresh)
+// TODO: Migrate to backend storage for persistence
+const fileBlobs = new Map<number, File>();
+
 export function setDocumentsNamespace(ns: string) { LS_KEY = ns; }
 export function getDocumentsNamespace(): string { return LS_KEY; }
 export function setDataSource(source: DataSource) { DATA_SOURCE = source; }
@@ -284,6 +288,8 @@ export function uploadDocuments(folderId: number, files: File[], uploadedBy?: st
       createdAt: nowISO(),
     };
     s.documents[id] = item;
+    // Store the actual file blob in memory for view/download
+    fileBlobs.set(id, file);
     logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: 'document.upload', entityType: 'document', entityId: id, metadata: { folderId, name, size: file.size }, at: nowISO() });
     created.push(item);
   });
@@ -358,6 +364,8 @@ export function removeDocument(id: number) {
   if (!s.documents[id]) return;
   const folderId = s.documents[id].folderId;
   delete s.documents[id];
+  // Clean up file blob from memory
+  fileBlobs.delete(id);
   logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: 'document.delete', entityType: 'document', entityId: id, metadata: { folderId }, at: nowISO() });
   persist(s);
 }
@@ -374,4 +382,21 @@ export function removeFolder(id: number) {
   delete s.folders[id];
   logInternal(s, { id: `audit-${Date.now()}-${Math.random().toString(36).slice(2)}`, action: 'folder.delete', entityType: 'folder', entityId: id, metadata: { parentId }, at: nowISO() });
   persist(s);
+}
+
+// File blob management functions for view/download
+export function getDocumentBlob(id: number): File | undefined {
+  return fileBlobs.get(id);
+}
+
+export function createBlobUrl(file: File): string {
+  return URL.createObjectURL(file);
+}
+
+export function revokeBlobUrl(url: string): void {
+  URL.revokeObjectURL(url);
+}
+
+export function hasDocumentBlob(id: number): boolean {
+  return fileBlobs.has(id);
 }
