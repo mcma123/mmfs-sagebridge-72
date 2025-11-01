@@ -10,10 +10,11 @@ router.get('/entities', authorize(['admin','accountant','editor','viewer']), asy
     const { data, error } = await req.db
       .from('accounting_entities')
       .select('*')
-      .is('deleted_at', null)
       .order('name', { ascending: true });
     if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
-    res.json({ items: data || [] });
+    // Filter out soft-deleted if column exists; backward-compatible if migrations not applied
+    const items = (data || []).filter((e: any) => !('deleted_at' in e) || e.deleted_at === null);
+    res.json({ items });
   } catch (err) { next(err); }
 });
 

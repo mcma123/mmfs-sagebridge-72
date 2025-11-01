@@ -9,6 +9,14 @@ ALTER TABLE accounting.entities
 ALTER TABLE accounting.journals
   ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ;
 
+-- Ensure journal_lines has required columns across environments
+ALTER TABLE accounting.journal_lines
+  ADD COLUMN IF NOT EXISTS debit NUMERIC(18,2) NOT NULL DEFAULT 0;
+ALTER TABLE accounting.journal_lines
+  ADD COLUMN IF NOT EXISTS credit NUMERIC(18,2) NOT NULL DEFAULT 0;
+ALTER TABLE accounting.journal_lines
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
 CREATE OR REPLACE VIEW public.accounting_journal_lines AS
 SELECT id, journal_id, account_id, entity_id, date, debit, credit, memo, created_at
 FROM accounting.journal_lines;
