@@ -118,6 +118,21 @@ router.post('/accounts', authorize(['admin','accountant']), async (req: any, res
   } catch (err) { next(err); }
 });
 
+// Get single account
+router.get('/accounts/:id', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await req.db
+      .from('accounting_accounts')
+      .select('*')
+      .eq('id', Number(id))
+      .limit(1)
+      .single();
+    if (error) throw { status: 404, code: 'NOT_FOUND', message: 'account not found' };
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 router.patch('/accounts/:id', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
@@ -133,6 +148,32 @@ router.patch('/accounts/:id', authorize(['admin','accountant']), async (req: any
     });
     if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
     res.json(data);
+  } catch (err) { next(err); }
+});
+
+router.delete('/accounts/:id', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+
+    // Check if account is referenced by journal lines
+    const refCheck = await req.pg.query(
+      'SELECT COUNT(*)::INT AS cnt FROM accounting.journal_lines WHERE account_id = $1',
+      [Number(id)]
+    );
+    const referenced = refCheck.rows?.[0]?.cnt > 0;
+
+    if (referenced) {
+      throw {
+        status: 409,
+        code: 'ACCOUNT_REFERENCED',
+        message: 'Cannot delete account with transaction history. Set to inactive instead.'
+      };
+    }
+
+    // Delete the account
+    await req.pg.query('DELETE FROM accounting.accounts WHERE id = $1', [Number(id)]);
+
+    res.status(204).send();
   } catch (err) { next(err); }
 });
 
@@ -154,12 +195,71 @@ router.post('/journals', authorize(['admin','accountant']), async (req: any, res
   } catch (err) { next(err); }
 });
 
+// Create journal draft (allows unbalanced)
+router.post('/journals/draft', authorize(['admin','accountant','editor']), async (req: any, res: any, next: any) => {
+  try {
+    const { date, reference, description, lines } = req.body || {};
+    if (!date || !Array.isArray(lines) || lines.length === 0) throw { status: 400, code: 'INVALID_BODY', message: 'date and lines[] required' };
+    const createdBy = Number(req.headers['x-user-id']) || null;
+    const { data, error } = await req.db.rpc('fn_create_journal_draft', {
+      p_date: date,
+      p_reference: reference ?? null,
+      p_description: description ?? null,
+      p_created_by: createdBy,
+      p_lines: lines
+    });
+    if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
+    res.status(201).json({ journal_id: data });
+  } catch (err) { next(err); }
+});
+
+// Review journal (draft -> reviewed)
+router.patch('/journals/:id/review', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const reviewedBy = Number(req.headers['x-user-id']) || null;
+    const { error } = await req.db.rpc('fn_review_journal', {
+      p_journal_id: Number(id),
+      p_reviewed_by: reviewedBy
+    });
+    if (error) {
+      // Map known DB errors to 400
+      if (error.message && (error.message.includes('not found') || error.message.includes('not in draft'))) {
+        throw { status: 400, code: 'INVALID_STATUS', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
+    res.status(200).json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Post journal from draft/reviewed
+router.post('/journals/:id/post', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const postedBy = Number(req.headers['x-user-id']) || null;
+    const { data, error } = await req.db.rpc('fn_post_journal_from_draft', {
+      p_journal_id: Number(id),
+      p_posted_by: postedBy
+    });
+    if (error) {
+      // Check for balance error
+      if (error.message && error.message.includes('not balanced')) {
+        throw { status: 400, code: 'UNBALANCED', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
+    res.status(200).json({ journal_id: data });
+  } catch (err) { next(err); }
+});
+
 router.get('/journals', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
   try {
-    const { start, end } = req.query as any;
+    const { start, end, status } = req.query as any;
     let q = req.db.from('accounting_journals').select('*');
     if (start) q = q.gte('date', start);
     if (end) q = q.lte('date', end);
+    if (status) q = q.eq('status', status);
     q = q.order('date', { ascending: true }).order('id', { ascending: true });
     const { data, error } = await q;
     if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
@@ -199,23 +299,58 @@ router.post('/journals/:id/void', authorize(['admin','accountant']), async (req:
       p_created_by: createdBy,
       p_reason: reason ?? null,
     });
-    if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
+    if (error) {
+      // Map known DB errors to 400
+      if (error.message && (error.message.includes('not found') || error.message.includes('already voided'))) {
+        throw { status: 400, code: 'INVALID_VOID', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
     res.json({ reversal_journal_id: data });
   } catch (err) { next(err); }
 });
 
-// Ledger query
-router.get('/ledger', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
+// Delete journal (only draft/reviewed)
+router.delete('/journals/:id', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
   try {
-    const { account_id, start, end } = req.query as any;
-    if (!account_id) throw { status: 400, code: 'INVALID_QUERY', message: 'account_id required' };
-    let q = req.db.from('accounting_ledger_entries').select('*').eq('account_id', account_id);
+    const journalId = Number(req.params.id);
+    if (!journalId) throw { status: 400, code: 'INVALID_ID', message: 'valid journal id required' };
+
+    const lookup = await req.pg.query('SELECT status FROM accounting.journals WHERE id = $1', [journalId]);
+    const journal = lookup.rows?.[0];
+    if (!journal) {
+      throw { status: 404, code: 'NOT_FOUND', message: 'Journal not found' };
+    }
+
+    if (journal.status === 'posted') {
+      throw {
+        status: 409,
+        code: 'POSTED_CANNOT_DELETE',
+        message: 'Posted journals must be voided instead of deleted.',
+      };
+    }
+
+    await req.pg.query('DELETE FROM accounting.journal_lines WHERE journal_id = $1', [journalId]);
+    await req.pg.query('DELETE FROM accounting.journals WHERE id = $1', [journalId]);
+
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Ledger query (with optional filters and pagination)
+router.get('/ledger', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const { account_id, start, end, limit = 50, offset = 0 } = req.query as any;
+    let q = req.db.from('accounting_ledger_entries').select('*', { count: 'exact' }).order('date', { ascending: true }).order('id', { ascending: true });
+    if (account_id) q = q.eq('account_id', Number(account_id));
     if (start) q = q.gte('date', start);
     if (end) q = q.lte('date', end);
-    q = q.order('date', { ascending: true }).order('id', { ascending: true });
-    const { data, error } = await q;
+    q = q.range(Number(offset), Number(offset) + Number(limit) - 1);
+    const { data, count, error } = await q;
     if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
-    res.json({ items: data || [] });
+    res.json({ items: data || [], total: count ?? undefined });
   } catch (err) { next(err); }
 });
 

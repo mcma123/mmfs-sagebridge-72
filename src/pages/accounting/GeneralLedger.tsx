@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import MainLayout from '@/components/layout/MainLayout';
 import { useNavigate } from 'react-router-dom';
@@ -10,8 +10,9 @@ import {
   Filter,
   CalendarRange,
   ArrowLeft,
-  CheckCircle2,
-  XCircle
+  ChevronLeft,
+  ChevronRight,
+  Loader2
 } from 'lucide-react';
 import {
   Card,
@@ -43,135 +44,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
-// Sample GL transactions
-const glTransactions = [
-  {
-    id: 1,
-    date: '2023-06-05',
-    account: 'Cash',
-    reference: 'INV-1001',
-    description: 'Customer payment - ABC Corp',
-    debit: 'R5,000.00',
-    credit: '',
-    balance: 'R25,000.00',
-    reconciled: true,
-    source: 'Sales',
-  },
-  {
-    id: 2,
-    date: '2023-06-04',
-    account: 'Accounts Receivable',
-    reference: 'INV-1001',
-    description: 'Invoice issued - ABC Corp',
-    debit: 'R5,000.00',
-    credit: '',
-    balance: 'R15,000.00',
-    reconciled: true,
-    source: 'Sales',
-  },
-  {
-    id: 3,
-    date: '2023-06-03',
-    account: 'Office Supplies',
-    reference: 'EXP-101',
-    description: 'Purchase of stationery',
-    debit: 'R350.00',
-    credit: '',
-    balance: 'R1,200.00',
-    reconciled: false,
-    source: 'Purchases',
-  },
-  {
-    id: 4,
-    date: '2023-06-02',
-    account: 'Cash',
-    reference: 'EXP-101',
-    description: 'Purchase of stationery',
-    debit: '',
-    credit: 'R350.00',
-    balance: 'R20,000.00',
-    reconciled: false,
-    source: 'Purchases',
-  },
-  {
-    id: 5,
-    date: '2023-06-01',
-    account: 'Rent Expense',
-    reference: 'JE-1001',
-    description: 'Monthly office rent',
-    debit: 'R3,500.00',
-    credit: '',
-    balance: 'R7,000.00',
-    reconciled: true,
-    source: 'Journal Entry',
-  },
-  {
-    id: 6,
-    date: '2023-06-01',
-    account: 'Cash',
-    reference: 'JE-1001',
-    description: 'Monthly office rent',
-    debit: '',
-    credit: 'R3,500.00',
-    balance: 'R20,350.00',
-    reconciled: true,
-    source: 'Journal Entry',
-  },
-  {
-    id: 7,
-    date: '2023-05-30',
-    account: 'Salaries Expense',
-    reference: 'PAY-052023',
-    description: 'May 2023 payroll',
-    debit: 'R8,500.00',
-    credit: '',
-    balance: 'R25,500.00',
-    reconciled: true,
-    source: 'Payroll',
-  },
-  {
-    id: 8,
-    date: '2023-05-30',
-    account: 'Cash',
-    reference: 'PAY-052023',
-    description: 'May 2023 payroll',
-    debit: '',
-    credit: 'R8,500.00',
-    balance: 'R23,850.00',
-    reconciled: true,
-    source: 'Payroll',
-  },
-  {
-    id: 9,
-    date: '2023-05-28',
-    account: 'Utility Expense',
-    reference: 'EXP-099',
-    description: 'Electricity bill',
-    debit: 'R1,200.00',
-    credit: '',
-    balance: 'R3,600.00',
-    reconciled: true,
-    source: 'Purchases',
-  },
-  {
-    id: 10,
-    date: '2023-05-28',
-    account: 'Cash',
-    reference: 'EXP-099',
-    description: 'Electricity bill',
-    debit: '',
-    credit: 'R1,200.00',
-    balance: 'R32,350.00',
-    reconciled: true,
-    source: 'Purchases',
-  },
-];
+import { useQuery } from '@tanstack/react-query';
+import { getLedger, getAccounts, type LedgerEntryDTO, type AccountDTO } from '@/lib/api/accounting';
+import { getPrimaryRole } from '@/lib/api/auth';
+import { useToast } from '@/hooks/use-toast';
 
 const GeneralLedger = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const role = getPrimaryRole();
+  
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [dateRange, setDateRange] = useState<{
     from: Date | undefined;
     to?: Date | undefined;
@@ -179,38 +63,84 @@ const GeneralLedger = () => {
     from: undefined,
     to: undefined,
   });
-  const [selectedSource, setSelectedSource] = useState<string>('');
-  
-  // Filter transactions based on search and filters
-  const filteredTransactions = glTransactions
-    .filter(transaction => 
-      transaction.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.account.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-    .filter(transaction => 
-      selectedAccount ? transaction.account === selectedAccount : true
-    )
-    .filter(transaction => 
-      selectedSource ? transaction.source === selectedSource : true
-    )
-    .filter(transaction => {
-      if (!dateRange.from) return true;
-      
-      const transactionDate = new Date(transaction.date);
-      
-      if (dateRange.to) {
-        return transactionDate >= dateRange.from && transactionDate <= dateRange.to;
-      }
-      
-      return transactionDate.toDateString() === dateRange.from.toDateString();
+  const [page, setPage] = useState(0);
+  const pageSize = 50;
+
+  // Fetch accounts for filter dropdown
+  const { data: accountsData, isLoading: accountsLoading } = useQuery({
+    queryKey: ['accounts', role],
+    queryFn: () => getAccounts(role),
+    onError: (error: any) => {
+      toast({
+        title: 'Error loading accounts',
+        description: error.message || 'Failed to load accounts',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Fetch ledger entries with filters and pagination
+  const { data: ledgerData, isLoading: ledgerLoading, isError: ledgerError } = useQuery({
+    queryKey: ['ledger', selectedAccountId, dateRange.from, dateRange.to, page, pageSize, role],
+    queryFn: () => getLedger({
+      accountId: selectedAccountId ? Number(selectedAccountId) : undefined,
+      start: dateRange.from ? format(dateRange.from, 'yyyy-MM-dd') : undefined,
+      end: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : undefined,
+      limit: pageSize,
+      offset: page * pageSize,
+    }, role),
+    keepPreviousData: true,
+    onError: (error: any) => {
+      toast({
+        title: 'Error loading ledger',
+        description: error.message || 'Failed to load ledger entries',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const accounts = accountsData?.items || [];
+  const ledgerEntries = ledgerData?.items || [];
+  const totalEntries = ledgerData?.total || 0;
+  const totalPages = Math.ceil(totalEntries / pageSize);
+
+  // Create account lookup map for display
+  const accountMap = useMemo(() => {
+    const map: Record<number, AccountDTO> = {};
+    accounts.forEach(acc => {
+      map[acc.id] = acc;
     });
-  
-  // Get unique accounts for filter dropdown
-  const uniqueAccounts = Array.from(new Set(glTransactions.map(t => t.account)));
-  
-  // Get unique sources for filter dropdown
-  const uniqueSources = Array.from(new Set(glTransactions.map(t => t.source)));
+    return map;
+  }, [accounts]);
+
+  // Client-side search filter (applied after server-side pagination)
+  const filteredEntries = useMemo(() => {
+    if (!searchTerm) return ledgerEntries;
+    const term = searchTerm.toLowerCase();
+    return ledgerEntries.filter(entry => {
+      const account = accountMap[entry.account_id];
+      const accountName = account ? `${account.code} - ${account.name}` : '';
+      return accountName.toLowerCase().includes(term) ||
+             entry.date.toLowerCase().includes(term);
+    });
+  }, [ledgerEntries, searchTerm, accountMap]);
+
+  // Calculate totals for displayed entries
+  const totals = useMemo(() => {
+    const totalDebit = filteredEntries.reduce((sum, entry) => sum + parseFloat(entry.debit || '0'), 0);
+    const totalCredit = filteredEntries.reduce((sum, entry) => sum + parseFloat(entry.credit || '0'), 0);
+    const netChange = totalDebit - totalCredit;
+    return { totalDebit, totalCredit, netChange };
+  }, [filteredEntries]);
+
+  // Format currency
+  const formatCurrency = (value: number | string) => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    return new Intl.NumberFormat('en-ZA', {
+      style: 'currency',
+      currency: 'ZAR',
+    }).format(num);
+  };
 
   return (
     <MainLayout>
@@ -256,26 +186,23 @@ const GeneralLedger = () => {
                   />
                 </div>
                 
-                <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-                  <SelectTrigger className="w-[200px]">
+                <Select 
+                  value={selectedAccountId} 
+                  onValueChange={(val) => {
+                    setSelectedAccountId(val === 'all' ? '' : val);
+                    setPage(0); // Reset to first page on filter change
+                  }}
+                  disabled={accountsLoading}
+                >
+                  <SelectTrigger className="w-[250px]">
                     <SelectValue placeholder="All Accounts" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Accounts</SelectItem>
-                    {uniqueAccounts.map(account => (
-                      <SelectItem key={account} value={account}>{account}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                
-                <Select value={selectedSource} onValueChange={setSelectedSource}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="All Sources" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Sources</SelectItem>
-                    {uniqueSources.map(source => (
-                      <SelectItem key={source} value={source}>{source}</SelectItem>
+                    {accounts.map(account => (
+                      <SelectItem key={account.id} value={String(account.id)}>
+                        {account.code} - {account.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -287,7 +214,7 @@ const GeneralLedger = () => {
                       variant="outline"
                       className={cn(
                         "w-[240px] justify-start text-left font-normal",
-                        !dateRange && "text-muted-foreground"
+                        !dateRange.from && "text-muted-foreground"
                       )}
                     >
                       <CalendarRange className="mr-2 h-4 w-4" />
@@ -311,11 +238,21 @@ const GeneralLedger = () => {
                       mode="range"
                       defaultMonth={dateRange.from}
                       selected={dateRange}
-                      onSelect={setDateRange}
+                      onSelect={(range) => {
+                        setDateRange(range || { from: undefined, to: undefined });
+                        setPage(0); // Reset to first page on filter change
+                      }}
                       numberOfMonths={2}
                     />
                     <div className="flex items-center justify-between p-3 border-t">
-                      <Button variant="outline" size="sm" onClick={() => setDateRange({ from: undefined, to: undefined })}>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => {
+                          setDateRange({ from: undefined, to: undefined });
+                          setPage(0);
+                        }}
+                      >
                         Clear
                       </Button>
                       <Button size="sm" onClick={() => document.body.click()}>
@@ -324,10 +261,6 @@ const GeneralLedger = () => {
                     </div>
                   </PopoverContent>
                 </Popover>
-                
-                <Button variant="outline" size="icon" className="shrink-0">
-                  <Filter size={16} />
-                </Button>
               </div>
               
               <div className="flex gap-2">
@@ -339,92 +272,140 @@ const GeneralLedger = () => {
             </div>
             
             {/* Transactions Table */}
-            <div className="border rounded-md overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-sage-lightGray">
-                    <TableHead className="w-[100px]">Date</TableHead>
-                    <TableHead className="w-[150px]">Account</TableHead>
-                    <TableHead className="w-[120px]">Reference</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right w-[120px]">Debit</TableHead>
-                    <TableHead className="text-right w-[120px]">Credit</TableHead>
-                    <TableHead className="text-right w-[140px]">Running Balance</TableHead>
-                    <TableHead className="w-[100px]">Source</TableHead>
-                    <TableHead className="w-[80px]">Reconciled</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredTransactions.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={9} className="text-center py-6 text-muted-foreground">
-                        No transactions found
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredTransactions.map(transaction => (
-                      <TableRow key={transaction.id}>
-                        <TableCell>{transaction.date}</TableCell>
-                        <TableCell className="font-medium">{transaction.account}</TableCell>
-                        <TableCell>{transaction.reference}</TableCell>
-                        <TableCell>{transaction.description}</TableCell>
-                        <TableCell className="text-right font-mono">
-                          {transaction.debit || '-'}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {transaction.credit || '-'}
-                        </TableCell>
-                        <TableCell className="text-right font-mono font-medium">
-                          {transaction.balance}
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-xs font-medium bg-sage-lightGray px-2 py-1 rounded">
-                            {transaction.source}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          {transaction.reconciled ? (
-                            <CheckCircle2 size={16} className="text-green-500 mx-auto" />
-                          ) : (
-                            <XCircle size={16} className="text-muted-foreground mx-auto" />
-                          )}
-                        </TableCell>
+            {ledgerLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-sage-blue" />
+                <span className="ml-3 text-muted-foreground">Loading ledger entries...</span>
+              </div>
+            ) : ledgerError ? (
+              <div className="text-center py-12">
+                <p className="text-destructive">Failed to load ledger entries</p>
+                <p className="text-sm text-muted-foreground mt-2">Please try again or contact support</p>
+              </div>
+            ) : (
+              <>
+                <div className="border rounded-md overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-sage-lightGray">
+                        <TableHead className="w-[100px]">Date</TableHead>
+                        <TableHead className="w-[200px]">Account</TableHead>
+                        <TableHead className="w-[120px]">Journal Line</TableHead>
+                        <TableHead className="text-right w-[140px]">Debit</TableHead>
+                        <TableHead className="text-right w-[140px]">Credit</TableHead>
+                        <TableHead className="text-right w-[160px]">Running Balance</TableHead>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredEntries.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                            {searchTerm ? 'No entries match your search' : 'No ledger entries found'}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredEntries.map(entry => {
+                          const account = accountMap[entry.account_id];
+                          const debitValue = parseFloat(entry.debit || '0');
+                          const creditValue = parseFloat(entry.credit || '0');
+                          return (
+                            <TableRow key={entry.id}>
+                              <TableCell className="font-medium">
+                                {format(new Date(entry.date), 'MMM dd, yyyy')}
+                              </TableCell>
+                              <TableCell className="font-medium">
+                                {account ? `${account.code} - ${account.name}` : `Account ${entry.account_id}`}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">
+                                #{entry.journal_line_id}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {debitValue > 0 ? formatCurrency(debitValue) : '-'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {creditValue > 0 ? formatCurrency(creditValue) : '-'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono font-semibold">
+                                {formatCurrency(entry.balance_after)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between mt-4">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {page * pageSize + 1} to {Math.min((page + 1) * pageSize, totalEntries)} of {totalEntries} entries
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPage(p => Math.max(0, p - 1))}
+                        disabled={page === 0 || ledgerLoading}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Previous
+                      </Button>
+                      <div className="text-sm text-muted-foreground">
+                        Page {page + 1} of {totalPages}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                        disabled={page >= totalPages - 1 || ledgerLoading}
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
             
             {/* Ledger Totals */}
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="border border-sage-blue/20">
-                <CardContent className="p-4 flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Debits</p>
-                    <p className="text-lg font-medium">R23,550.00</p>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              <Card className="border border-sage-blue/20">
-                <CardContent className="p-4 flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Credits</p>
-                    <p className="text-lg font-medium">R13,550.00</p>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              <Card className="border border-sage-blue/20">
-                <CardContent className="p-4 flex justify-between items-center">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Net Change</p>
-                    <p className="text-lg font-medium">R10,000.00</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            {!ledgerLoading && !ledgerError && filteredEntries.length > 0 && (
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="border border-sage-blue/20">
+                  <CardContent className="p-4 flex justify-between items-center">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Debits</p>
+                      <p className="text-lg font-semibold">{formatCurrency(totals.totalDebit)}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="border border-sage-blue/20">
+                  <CardContent className="p-4 flex justify-between items-center">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Credits</p>
+                      <p className="text-lg font-semibold">{formatCurrency(totals.totalCredit)}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="border border-sage-blue/20">
+                  <CardContent className="p-4 flex justify-between items-center">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Net Change</p>
+                      <p className={cn(
+                        "text-lg font-semibold",
+                        totals.netChange > 0 ? "text-green-600" : totals.netChange < 0 ? "text-red-600" : ""
+                      )}>
+                        {formatCurrency(totals.netChange)}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </CardContent>
         </Card>
       </motion.div>

@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import MainLayout from '@/components/layout/MainLayout';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import {
   Search,
@@ -39,134 +40,236 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-
-// Sample journal entries data
-const journalEntries = [
-  {
-    id: 1001,
-    date: '2023-06-01',
-    reference: 'JE-1001',
-    description: 'June rent payment',
-    effect: 'Debit',
-    account: 'Rent Expense',
-    amount: 'R3,500.00',
-    affectingAccount: 'Cash',
-    status: 'draft',
-  },
-  {
-    id: 1002,
-    date: '2023-06-05',
-    reference: 'JE-1002',
-    description: 'Purchase of office supplies',
-    effect: 'Debit',
-    account: 'Office Supplies',
-    amount: 'R750.00',
-    affectingAccount: 'Cash',
-    status: 'draft',
-  },
-  {
-    id: 1003,
-    date: '2023-06-10',
-    reference: 'JE-1003',
-    description: 'Client invoice payment',
-    effect: 'Debit',
-    account: 'Cash',
-    amount: 'R2,500.00',
-    affectingAccount: 'Accounts Receivable',
-    status: 'draft',
-  },
-  {
-    id: 1004,
-    date: '2023-05-28',
-    reference: 'JE-1004',
-    description: 'Salaries payment',
-    effect: 'Debit',
-    account: 'Salaries Expense',
-    amount: 'R8,500.00',
-    affectingAccount: 'Cash',
-    status: 'reviewed',
-  },
-  {
-    id: 1005,
-    date: '2023-05-25',
-    reference: 'JE-1005',
-    description: 'Utility bills',
-    effect: 'Debit',
-    account: 'Utility Expense',
-    amount: 'R1,250.00',
-    affectingAccount: 'Cash',
-    status: 'reviewed',
-  },
-  {
-    id: 1006,
-    date: '2023-05-20',
-    reference: 'JE-1006',
-    description: 'Loan repayment',
-    effect: 'Debit',
-    account: 'Long-term Loan',
-    amount: 'R1,500.00',
-    affectingAccount: 'Cash',
-    status: 'reviewed',
-  },
-  {
-    id: 1007,
-    date: '2023-05-15',
-    reference: 'JE-1007',
-    description: 'Sales revenue',
-    effect: 'Credit',
-    account: 'Sales Revenue',
-    amount: 'R5,250.00',
-    affectingAccount: 'Cash',
-    status: 'posted',
-  },
-  {
-    id: 1008,
-    date: '2023-05-10',
-    reference: 'JE-1008',
-    description: 'Asset depreciation',
-    effect: 'Debit',
-    account: 'Depreciation Expense',
-    amount: 'R850.00',
-    affectingAccount: 'Accumulated Depreciation',
-    status: 'posted',
-  },
-];
+import { deleteJournal, getJournals, reviewJournal, voidJournal, type JournalDTO } from '@/lib/api/accounting';
+import { getPrimaryRole } from '@/lib/api/auth';
+import { toast } from '@/hooks/use-toast';
 
 const Journals = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
-  const [activeTab, setActiveTab] = useState('new');
+  const [selectedJournalMap, setSelectedJournalMap] = useState<Record<number, JournalDTO>>({});
+  const [activeTab, setActiveTab] = useState<'draft' | 'reviewed' | 'posted'>('draft');
+  const [isActionLoading, setIsActionLoading] = useState(false);
   
-  // Filter journal entries based on search term and active tab
-  const filteredJournals = journalEntries
+  const role = getPrimaryRole();
+  const queryClient = useQueryClient();
+  
+  // Fetch journals from API based on active tab
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['journals', activeTab],
+    queryFn: () => getJournals({ status: activeTab }, role as any),
+  });
+  
+  // Filter journal entries based on search term (client-side)
+  const filteredJournals = (data?.items || [])
     .filter(journal => 
-      journal.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      journal.reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      journal.account.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-    .filter(journal => {
-      if (activeTab === 'new') return journal.status === 'draft';
-      if (activeTab === 'reviewed') return journal.status === 'reviewed';
-      if (activeTab === 'posted') return journal.status === 'posted';
-      return true;
-    });
-  
-  const toggleSelectRow = (id: number) => {
-    setSelectedRows(prev => 
-      prev.includes(id) 
-        ? prev.filter(rowId => rowId !== id)
-        : [...prev, id]
+      journal.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      journal.reference?.toLowerCase().includes(searchTerm.toLowerCase())
     );
+  
+  const toggleSelectRow = (journal: JournalDTO) => {
+    setSelectedRows(prev =>
+      prev.includes(journal.id)
+        ? prev.filter(rowId => rowId !== journal.id)
+        : [...prev, journal.id]
+    );
+    setSelectedJournalMap(prev => {
+      const next = { ...prev };
+      if (next[journal.id]) {
+        delete next[journal.id];
+      } else {
+        next[journal.id] = journal;
+      }
+      return next;
+    });
   };
   
-  const toggleSelectAll = () => {
-    if (selectedRows.length === filteredJournals.length) {
+  const toggleSelectAll = (journals: JournalDTO[]) => {
+    const ids = journals.map(journal => journal.id);
+    const allSelected = ids.every(id => selectedRows.includes(id));
+
+    setSelectedRows(prev => {
+      if (allSelected) {
+        return prev.filter(id => !ids.includes(id));
+      }
+      const merged = new Set(prev);
+      ids.forEach(id => merged.add(id));
+      return Array.from(merged);
+    });
+
+    setSelectedJournalMap(prev => {
+      const next = { ...prev };
+      if (allSelected) {
+        ids.forEach(id => {
+          delete next[id];
+        });
+      } else {
+        journals.forEach(journal => {
+          next[journal.id] = journal;
+        });
+      }
+      return next;
+    });
+  };
+
+  const getStatusForSelection = (id: number): JournalDTO['status'] | undefined => {
+    return selectedJournalMap[id]?.status ?? (activeTab as JournalDTO['status']);
+  };
+
+  const handleMarkReviewed = async () => {
+    if (isActionLoading) return;
+
+    const draftIds = selectedRows.filter(id => getStatusForSelection(id) === 'draft');
+    if (draftIds.length === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'No draft journals selected',
+        description: 'Select draft journals to mark them as reviewed.',
+      });
+      return;
+    }
+
+    setIsActionLoading(true);
+    try {
+      const results = await Promise.allSettled(
+        draftIds.map(id => reviewJournal(id, role as any, 1))
+      );
+      const successCount = results.filter(result => result.status === 'fulfilled').length;
+      const failureCount = results.length - successCount;
+
+      if (successCount > 0) {
+        toast({
+          title: 'Journals reviewed',
+          description: `Marked ${successCount} journal${successCount > 1 ? 's' : ''} as reviewed.`,
+        });
+      }
+
+      if (failureCount > 0) {
+        const firstError = results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+        const errorMsg = firstError?.reason?.message || 'Unknown error';
+        toast({
+          variant: 'destructive',
+          title: 'Some journals failed to review',
+          description: `${failureCount} journal${failureCount > 1 ? 's' : ''} could not be updated. ${errorMsg}`,
+        });
+      }
+
+      await refetch();
+      await queryClient.invalidateQueries({ queryKey: ['journals'] });
+
       setSelectedRows([]);
-    } else {
-      setSelectedRows(filteredJournals.map(journal => journal.id));
+      setSelectedJournalMap({});
+
+      if (successCount > 0) {
+        setActiveTab('reviewed');
+      }
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to review journals',
+        description: err?.message || 'Something went wrong while marking journals as reviewed.',
+      });
+    } finally {
+      setIsActionLoading(false);
     }
   };
+
+  const handleDeleteSelected = async () => {
+    if (isActionLoading || selectedRows.length === 0) return;
+
+    const draftOrReviewedIds: number[] = [];
+    const postedIds: number[] = [];
+    const unsupportedIds: number[] = [];
+
+    selectedRows.forEach(id => {
+      const status = getStatusForSelection(id);
+      if (status === 'draft' || status === 'reviewed') {
+        draftOrReviewedIds.push(id);
+      } else if (status === 'posted') {
+        postedIds.push(id);
+      } else {
+        unsupportedIds.push(id);
+      }
+    });
+
+    if (draftOrReviewedIds.length === 0 && postedIds.length === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'No removable journals selected',
+        description: 'Only draft or reviewed journals can be deleted. Posted journals will be voided automatically.',
+      });
+      return;
+    }
+
+    setIsActionLoading(true);
+    try {
+      const deleteResults = await Promise.allSettled(
+        draftOrReviewedIds.map(id => deleteJournal(id, role as any))
+      );
+      const voidResults = await Promise.allSettled(
+        postedIds.map(id => voidJournal(id, 'Voided via journals delete action', role as any, 1))
+      );
+
+      const deletedCount = deleteResults.filter(result => result.status === 'fulfilled').length;
+      const voidedCount = voidResults.filter(result => result.status === 'fulfilled').length;
+      const deleteFailures = deleteResults.length - deletedCount;
+      const voidFailures = voidResults.length - voidedCount;
+
+      if (deletedCount > 0) {
+        toast({
+          title: 'Journals deleted',
+          description: `Removed ${deletedCount} journal${deletedCount > 1 ? 's' : ''}.`,
+        });
+      }
+
+      if (voidedCount > 0) {
+        toast({
+          title: 'Journals voided',
+          description: `Voided ${voidedCount} posted journal${voidedCount > 1 ? 's' : ''}.`,
+        });
+      }
+
+      if (deleteFailures + voidFailures > 0) {
+        const firstDeleteError = deleteResults.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+        const firstVoidError = voidResults.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+        const errorMsg = firstDeleteError?.reason?.message || firstVoidError?.reason?.message || 'Unknown error';
+        toast({
+          variant: 'destructive',
+          title: 'Some journals could not be processed',
+          description: `${deleteFailures + voidFailures} journal${deleteFailures + voidFailures > 1 ? 's' : ''} failed to delete or void. ${errorMsg}`,
+        });
+      }
+
+      if (unsupportedIds.length > 0) {
+        toast({
+          variant: 'destructive',
+          title: 'Unsupported journal statuses',
+          description: `${unsupportedIds.length} selected journal${unsupportedIds.length > 1 ? 's are' : ' is'} in an unsupported status.`,
+        });
+      }
+
+      await refetch();
+      await queryClient.invalidateQueries({ queryKey: ['journals'] });
+
+      setSelectedRows([]);
+      setSelectedJournalMap({});
+    } catch (err: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to delete journals',
+        description: err?.message || 'Something went wrong while deleting journals.',
+      });
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const selectedDraftCount = selectedRows.filter(id => getStatusForSelection(id) === 'draft').length;
+  const hasDeleteCandidates = selectedRows.some(id => {
+    const status = getStatusForSelection(id);
+    return status === 'draft' || status === 'reviewed' || status === 'posted';
+  });
   
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -213,10 +316,10 @@ const Journals = () => {
             <CardTitle className="text-lg">Process Journal Entries</CardTitle>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="new" onValueChange={setActiveTab}>
+            <Tabs defaultValue="draft" onValueChange={(v) => setActiveTab(v as 'draft' | 'reviewed' | 'posted')}>
               <div className="flex flex-col md:flex-row justify-between mb-6 gap-4">
                 <TabsList className="mb-0">
-                  <TabsTrigger value="new">New Journals</TabsTrigger>
+                  <TabsTrigger value="draft">New Journals</TabsTrigger>
                   <TabsTrigger value="reviewed">Reviewed Journals</TabsTrigger>
                   <TabsTrigger value="posted">Posted Journals</TabsTrigger>
                 </TabsList>
@@ -274,34 +377,69 @@ const Journals = () => {
                   <span className="text-sm font-medium">{selectedRows.length} entries selected</span>
                   <div className="flex-1"></div>
                   
-                  {activeTab === 'new' && (
-                    <Button variant="ghost" size="sm" className="text-sage-blue hover:bg-sage-blue/10">
+                  {activeTab === 'draft' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-sage-blue hover:bg-sage-blue/10"
+                      onClick={handleMarkReviewed}
+                      disabled={isActionLoading || selectedDraftCount === 0}
+                    >
                       Mark as Reviewed
                     </Button>
                   )}
                   
                   {activeTab === 'reviewed' && (
-                    <Button variant="ghost" size="sm" className="text-sage-blue hover:bg-sage-blue/10">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-sage-blue hover:bg-sage-blue/10"
+                      disabled={isActionLoading}
+                    >
                       Post Entries
                     </Button>
                   )}
                   
-                  <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={handleDeleteSelected}
+                    disabled={isActionLoading || !hasDeleteCandidates}
+                  >
                     Delete
                   </Button>
                 </div>
               )}
               
-              <TabsContent value="new" className="m-0">
-                {renderJournalTable(filteredJournals, selectedRows, toggleSelectRow, toggleSelectAll, getStatusBadge)}
+              <TabsContent value="draft" className="m-0">
+                {isLoading ? (
+                  <div className="text-center py-8 text-muted-foreground">Loading journals...</div>
+                ) : error ? (
+                  <div className="text-center py-8 text-red-600">Error loading journals</div>
+                ) : (
+                  renderJournalTable(filteredJournals, selectedRows, toggleSelectRow, toggleSelectAll, getStatusBadge)
+                )}
               </TabsContent>
               
               <TabsContent value="reviewed" className="m-0">
-                {renderJournalTable(filteredJournals, selectedRows, toggleSelectRow, toggleSelectAll, getStatusBadge)}
+                {isLoading ? (
+                  <div className="text-center py-8 text-muted-foreground">Loading journals...</div>
+                ) : error ? (
+                  <div className="text-center py-8 text-red-600">Error loading journals</div>
+                ) : (
+                  renderJournalTable(filteredJournals, selectedRows, toggleSelectRow, toggleSelectAll, getStatusBadge)
+                )}
               </TabsContent>
               
               <TabsContent value="posted" className="m-0">
-                {renderJournalTable(filteredJournals, selectedRows, toggleSelectRow, toggleSelectAll, getStatusBadge)}
+                {isLoading ? (
+                  <div className="text-center py-8 text-muted-foreground">Loading journals...</div>
+                ) : error ? (
+                  <div className="text-center py-8 text-red-600">Error loading journals</div>
+                ) : (
+                  renderJournalTable(filteredJournals, selectedRows, toggleSelectRow, toggleSelectAll, getStatusBadge)
+                )}
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -346,12 +484,20 @@ const Journals = () => {
 };
 
 function renderJournalTable(
-  journals: typeof journalEntries,
+  journals: JournalDTO[],
   selectedRows: number[],
-  toggleSelectRow: (id: number) => void,
-  toggleSelectAll: () => void,
+  toggleSelectRow: (journal: JournalDTO) => void,
+  toggleSelectAll: (journals: JournalDTO[]) => void,
   getStatusBadge: (status: string) => React.ReactNode
 ) {
+  const visibleSelectedCount = journals.filter(journal => selectedRows.includes(journal.id)).length;
+  const allVisibleSelected = journals.length > 0 && visibleSelectedCount === journals.length;
+  const headerCheckboxState = allVisibleSelected
+    ? true
+    : visibleSelectedCount > 0
+    ? 'indeterminate'
+    : false;
+
   return (
     <div className="border rounded-md overflow-hidden">
       <Table>
@@ -359,24 +505,21 @@ function renderJournalTable(
           <TableRow className="bg-sage-lightGray">
             <TableHead className="w-[50px]">
               <Checkbox 
-                checked={selectedRows.length === journals.length && journals.length > 0}
-                onCheckedChange={toggleSelectAll}
+                checked={headerCheckboxState}
+                onCheckedChange={() => toggleSelectAll(journals)}
               />
             </TableHead>
             <TableHead className="w-[120px]">Date</TableHead>
             <TableHead className="w-[120px]">Reference</TableHead>
             <TableHead className="min-w-[200px]">Description</TableHead>
-            <TableHead className="w-[100px]">Effect</TableHead>
-            <TableHead className="min-w-[150px]">Account</TableHead>
             <TableHead className="text-right w-[120px]">Amount</TableHead>
-            <TableHead className="min-w-[150px]">Affecting Account</TableHead>
             <TableHead className="w-[100px]">Status</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {journals.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={9} className="text-center py-6 text-muted-foreground">
+              <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
                 No journal entries found
               </TableCell>
             </TableRow>
@@ -389,19 +532,18 @@ function renderJournalTable(
                 <TableCell>
                   <Checkbox 
                     checked={selectedRows.includes(journal.id)}
-                    onCheckedChange={() => toggleSelectRow(journal.id)}
+                    onCheckedChange={() => toggleSelectRow(journal)}
                   />
                 </TableCell>
                 <TableCell>{journal.date}</TableCell>
-                <TableCell>{journal.reference}</TableCell>
+                <TableCell>{journal.reference || '-'}</TableCell>
                 <TableCell className="font-medium cursor-pointer hover:text-sage-blue">
-                  {journal.description}
+                  {journal.description || '-'}
                 </TableCell>
-                <TableCell>{journal.effect}</TableCell>
-                <TableCell>{journal.account}</TableCell>
-                <TableCell className="text-right font-mono">{journal.amount}</TableCell>
-                <TableCell>{journal.affectingAccount}</TableCell>
-                <TableCell>{getStatusBadge(journal.status)}</TableCell>
+                <TableCell className="text-right font-mono">
+                  R{(journal.total_amount || 0).toFixed(2)}
+                </TableCell>
+                <TableCell>{getStatusBadge(journal.status || 'draft')}</TableCell>
               </TableRow>
             ))
           )}

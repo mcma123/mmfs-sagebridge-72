@@ -2,27 +2,32 @@
 -- This avoids requiring the 'accounting' schema to be in Exposed Schemas
 
 -- Entities view
-CREATE OR REPLACE VIEW public.accounting_entities AS
+DROP VIEW IF EXISTS public.accounting_entities CASCADE;
+CREATE VIEW public.accounting_entities AS
 SELECT id, type, name, status, currency, country, email, phone, notes, created_at, updated_at
 FROM accounting.entities;
 
 -- Accounts view
-CREATE OR REPLACE VIEW public.accounting_accounts AS
+DROP VIEW IF EXISTS public.accounting_accounts CASCADE;
+CREATE VIEW public.accounting_accounts AS
 SELECT id, code, name, type, currency, parent_id, is_active, created_at
 FROM accounting.accounts;
 
 -- Journals view
-CREATE OR REPLACE VIEW public.accounting_journals AS
+DROP VIEW IF EXISTS public.accounting_journals CASCADE;
+CREATE VIEW public.accounting_journals AS
 SELECT id, date, reference, description, created_by, created_at
 FROM accounting.journals;
 
 -- Ledger entries view
-CREATE OR REPLACE VIEW public.accounting_ledger_entries AS
+DROP VIEW IF EXISTS public.accounting_ledger_entries CASCADE;
+CREATE VIEW public.accounting_ledger_entries AS
 SELECT id, account_id, journal_line_id, date, debit, credit, balance_after, created_at
 FROM accounting.ledger_entries;
 
 -- Trial balance alias view (current)
-CREATE OR REPLACE VIEW public.accounting_trial_balance_current AS
+DROP VIEW IF EXISTS public.accounting_trial_balance_current CASCADE;
+CREATE VIEW public.accounting_trial_balance_current AS
 SELECT * FROM accounting.v_trial_balance_current;
 
 -- Grants so Data API roles can read (service_role already has broad perms)

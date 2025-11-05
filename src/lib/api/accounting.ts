@@ -65,6 +65,12 @@ export type JournalDTO = {
   created_by?: number | null;
   created_at?: string;
   voided_at?: string | null;
+  status?: 'draft' | 'reviewed' | 'posted';
+  reviewed_at?: string | null;
+  reviewed_by?: number | null;
+  posted_at?: string | null;
+  posted_by?: number | null;
+  total_amount?: number;
 };
 
 export type JournalLineInput = {
@@ -81,6 +87,15 @@ export type PostJournalRequest = {
   reference?: string | null;
   description?: string | null;
   lines: JournalLineInput[];
+};
+
+export type CreateAccountRequest = {
+  code: string;
+  name: string;
+  type: string;
+  currency?: string | null;
+  parent_id?: number | null;
+  is_active?: boolean;
 };
 
 export type JournalLineDTO = {
@@ -103,10 +118,19 @@ export async function getAccounts(role: Role = 'accountant') {
   return apiFetch<{ items: AccountDTO[] }>(`/accounts`, { method: 'GET' }, role);
 }
 
-export async function getJournals(params?: { start?: string; end?: string }, role: Role = 'accountant') {
+export async function getAccount(id: number, role: Role = 'accountant') {
+  return apiFetch<AccountDTO>(`/accounts/${id}`, { method: 'GET' }, role);
+}
+
+export async function createAccount(payload: CreateAccountRequest, role: Role = 'accountant') {
+  return apiFetch<AccountDTO>(`/accounts`, { method: 'POST', body: JSON.stringify(payload) }, role);
+}
+
+export async function getJournals(params?: { start?: string; end?: string; status?: 'draft' | 'reviewed' | 'posted' }, role: Role = 'accountant') {
   const qs = new URLSearchParams();
   if (params?.start) qs.set('start', params.start);
   if (params?.end) qs.set('end', params.end);
+  if (params?.status) qs.set('status', params.status);
   const q = qs.toString();
   const path = `/journals${q ? `?${q}` : ''}`;
   return apiFetch<{ items: JournalDTO[] }>(path, { method: 'GET' }, role);
@@ -130,4 +154,72 @@ export async function getJournal(id: number, role: Role = 'accountant') {
 
 export async function voidJournal(id: number, reason?: string, role: Role = 'accountant', userId: number = 1) {
   return apiFetch<{ reversal_journal_id: number }>(`/journals/${id}/void`, { method: 'POST', body: JSON.stringify({ reason: reason ?? null }) }, role, userId);
+}
+
+export type TrialBalanceDTO = {
+  account_id: number;
+  code: string;
+  name: string;
+  type: string;
+  balance: number;
+};
+
+export async function getTrialBalance(role: Role = 'accountant') {
+  return apiFetch<{ items: TrialBalanceDTO[] }>(`/trial-balance`, { method: 'GET' }, role);
+}
+
+export type UpdateAccountRequest = {
+  code?: string;
+  name?: string;
+  type?: string;
+  currency?: string | null;
+  parent_id?: number | null;
+  is_active?: boolean;
+};
+
+export async function updateAccount(id: number, payload: UpdateAccountRequest, role: Role = 'accountant') {
+  return apiFetch<AccountDTO>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }, role);
+}
+
+export async function deleteAccount(id: number, role: Role = 'accountant') {
+  return apiFetch<void>(`/accounts/${id}`, { method: 'DELETE' }, role);
+}
+
+export async function createJournalDraft(payload: PostJournalRequest, role: Role = 'accountant', userId: number = 1) {
+  return apiFetch<{ journal_id: number }>(`/journals/draft`, { method: 'POST', body: JSON.stringify(payload) }, role, userId);
+}
+
+export async function reviewJournal(id: number, role: Role = 'accountant', userId: number = 1) {
+  return apiFetch<{ success: boolean }>(`/journals/${id}/review`, { method: 'PATCH' }, role, userId);
+}
+
+export async function deleteJournal(id: number, role: Role = 'accountant') {
+  return apiFetch<void>(`/journals/${id}`, { method: 'DELETE' }, role);
+}
+
+export async function postJournalFromDraft(id: number, role: Role = 'accountant', userId: number = 1) {
+  return apiFetch<{ journal_id: number }>(`/journals/${id}/post`, { method: 'POST' }, role, userId);
+}
+
+export type LedgerEntryDTO = {
+  id: number;
+  account_id: number;
+  journal_line_id: number;
+  date: string; // ISO date
+  debit: string; // numeric as string
+  credit: string;
+  balance_after: string;
+  created_at: string;
+};
+
+export async function getLedger(params: { accountId?: number; start?: string; end?: string; limit?: number; offset?: number }, role: Role = 'accountant') {
+  const qs = new URLSearchParams();
+  if (params.accountId) qs.set('account_id', String(params.accountId));
+  if (params.start) qs.set('start', params.start);
+  if (params.end) qs.set('end', params.end);
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.offset) qs.set('offset', String(params.offset));
+  const q = qs.toString();
+  const path = `/ledger${q ? `?${q}` : ''}`;
+  return apiFetch<{ items: LedgerEntryDTO[]; total?: number }>(path, { method: 'GET' }, role);
 }

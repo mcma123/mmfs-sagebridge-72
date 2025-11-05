@@ -42,6 +42,8 @@ import {
 } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
+import { createAccount } from '@/lib/api/accounting';
+import type { CreateAccountRequest } from '@/lib/api/accounting';
 
 // Define the schema for account form
 const accountFormSchema = z.object({
@@ -112,19 +114,39 @@ const AddAccount = () => {
   const isBankAccount = form.watch('bankDetails.isBankAccount');
   
   // Form submission handler
-  const onSubmit = (data: AccountFormValues) => {
-    // TODO: Implement the actual account creation logic
-    
-    console.log('Form data:', data);
-    
-    // Show success message
-    toast({
-      title: 'Account created successfully',
-      description: `${data.accountName} has been added to your chart of accounts.`,
-    });
-    
-    // Redirect to chart of accounts
-    navigate('/accounting/chart-of-accounts');
+  const onSubmit = async (data: AccountFormValues) => {
+    try {
+      // Map form fields to API structure
+      const payload: CreateAccountRequest = {
+        code: data.accountNumber,
+        name: data.accountName,
+        type: data.accountType,
+        currency: data.currencyCode || null,
+        parent_id: null, // Can be extended later for hierarchical accounts
+        is_active: data.isActive ?? true,
+      };
+
+      // Call API to create account
+      await createAccount(payload, 'accountant');
+
+      // Show success message
+      toast({
+        title: 'Account created successfully',
+        description: `${data.accountName} has been added to your chart of accounts.`,
+      });
+
+      // Redirect to chart of accounts
+      navigate('/accounting/chart-of-accounts');
+    } catch (error: any) {
+      console.error('Failed to create account:', error);
+
+      // Show error message
+      toast({
+        title: 'Failed to create account',
+        description: error.message || 'An error occurred while creating the account. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   return (

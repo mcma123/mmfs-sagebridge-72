@@ -40,11 +40,13 @@ import MyAccount from './pages/administration/MyAccount';
 // Accounting pages
 import Accounting from './pages/Accounting';
 import ChartOfAccounts from './pages/accounting/ChartOfAccounts';
+import AccountDetail from './pages/accounting/AccountDetail';
 import Journals from './pages/accounting/Journals';
 import CreateJournal from './pages/accounting/CreateJournal';
 import GeneralLedger from './pages/accounting/GeneralLedger';
 import TrialBalance from './pages/accounting/TrialBalance';
 import AddAccount from './pages/accounting/AddAccount';
+import EditAccount from './pages/accounting/EditAccount';
 import Reconciliation from './pages/accounting/Reconciliation';
 import AdjustOpeningBalance from './pages/accounting/AdjustOpeningBalance';
 import TaxReports from './pages/accounting/TaxReports';
@@ -86,11 +88,13 @@ const App = () => (
               {/* Accounting Routes */}
               <Route path="/accounting" element={<Accounting />} />
               <Route path="/accounting/chart-of-accounts" element={<ChartOfAccounts />} />
+              <Route path="/accounting/account/:id" element={<AccountDetail />} />
               <Route path="/accounting/journals" element={<Journals />} />
               <Route path="/accounting/journals/new" element={<CreateJournal />} />
               <Route path="/accounting/general-ledger" element={<GeneralLedger />} />
               <Route path="/accounting/trial-balance" element={<TrialBalance />} />
               <Route path="/accounting/add-account" element={<AddAccount />} />
+              <Route path="/accounting/account/:id/edit" element={<EditAccount />} />
               <Route path="/accounting/reconciliation" element={<Reconciliation />} />
               <Route path="/accounting/adjust-opening-balance" element={<AdjustOpeningBalance />} />
               <Route path="/accounting/tax-reports" element={<TaxReports />} />

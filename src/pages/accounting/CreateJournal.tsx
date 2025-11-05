@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import MainLayout from '@/components/layout/MainLayout';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -18,6 +19,12 @@ import {
   Save,
   Send
 } from 'lucide-react';
+import { 
+  getAccounts, 
+  createJournalDraft, 
+  postJournal
+} from '@/lib/api/accounting';
+import { getPrimaryRole } from '@/lib/api/auth';
 import {
   Card,
   CardContent,
@@ -84,28 +91,6 @@ const journalFormSchema = z.object({
 
 type JournalFormValues = z.infer<typeof journalFormSchema>;
 
-// Sample accounts data
-const accounts = [
-  { value: "10001", label: "Cash" },
-  { value: "10002", label: "Accounts Receivable" },
-  { value: "10003", label: "Inventory" },
-  { value: "10004", label: "Prepaid Expenses" },
-  { value: "10101", label: "Office Equipment" },
-  { value: "20001", label: "Accounts Payable" },
-  { value: "20002", label: "Salaries Payable" },
-  { value: "20003", label: "VAT Payable" },
-  { value: "30001", label: "Share Capital" },
-  { value: "30002", label: "Retained Earnings" },
-  { value: "40001", label: "Sales Revenue" },
-  { value: "40002", label: "Interest Income" },
-  { value: "50001", label: "Cost of Goods Sold" },
-  { value: "50002", label: "Rent Expense" },
-  { value: "50003", label: "Utility Expense" },
-  { value: "50004", label: "Salaries Expense" },
-  { value: "50005", label: "Depreciation" },
-  { value: "50006", label: "Office Supplies" },
-];
-
 // Tax codes
 const taxCodes = [
   { value: "STD", label: "Standard Rate (15%)" },
@@ -117,6 +102,56 @@ const taxCodes = [
 const CreateJournal = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'standard' | 'recurring'>('standard');
+  const role = getPrimaryRole();
+  
+  // Fetch accounts from database
+  const { data: accountsData, isLoading: loadingAccounts } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => getAccounts(role as any),
+  });
+  
+  const accounts = (accountsData?.items || []).map(acc => ({
+    value: String(acc.id),
+    label: `${acc.code} - ${acc.name}`,
+    id: acc.id
+  }));
+  
+  // Mutations for creating journal drafts and posting
+  const draftMutation = useMutation({
+    mutationFn: (payload: any) => createJournalDraft(payload, role as any, 1),
+    onSuccess: () => {
+      toast({
+        title: 'Draft saved',
+        description: 'Journal entry has been saved as a draft.',
+      });
+      navigate('/accounting/journals');
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error saving draft',
+        description: error.message || 'Failed to save journal draft',
+        variant: 'destructive',
+      });
+    }
+  });
+  
+  const postMutation = useMutation({
+    mutationFn: (payload: any) => postJournal(payload, role as any, 1),
+    onSuccess: () => {
+      toast({
+        title: 'Journal posted',
+        description: 'Journal entry has been posted to the ledger.',
+      });
+      navigate('/accounting/journals');
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error posting journal',
+        description: error.message || 'Failed to post journal entry',
+        variant: 'destructive',
+      });
+    }
+  });
   
   // Form definition
   const form = useForm<JournalFormValues>({
@@ -181,7 +216,7 @@ const CreateJournal = () => {
   const totals = calculateTotals();
   
   const onSubmit = (data: JournalFormValues) => {
-    // Validate debits equal credits
+    // Validate debits equal credits for posting
     if (!totals.isBalanced) {
       toast({
         title: 'Journal not balanced',
@@ -191,22 +226,79 @@ const CreateJournal = () => {
       return;
     }
     
-    // TODO: Implement the actual journal entry creation logic
-    console.log('Form data:', data);
+    // Transform form data to API payload
+    const payload = {
+      date: format(data.date, 'yyyy-MM-dd'),
+      reference: data.reference,
+      description: data.description,
+      lines: data.lines.map(line => {
+        const debitValue = line.debit ? parseFloat(line.debit.replace(/[^0-9.-]+/g, '')) : 0;
+        const creditValue = line.credit ? parseFloat(line.credit.replace(/[^0-9.-]+/g, '')) : 0;
+        
+        return {
+          account_id: parseInt(line.account),
+          date: format(data.date, 'yyyy-MM-dd'),
+          debit: debitValue,
+          credit: creditValue,
+          memo: line.description || null,
+          entity_id: null,
+        };
+      }).filter(line => line.debit > 0 || line.credit > 0), // Only include lines with amounts
+    };
     
-    // Show success message
-    toast({
-      title: data.isRecurring ? 'Recurring journal created' : 'Journal entry created',
-      description: `${data.reference} has been saved successfully.`,
-    });
+    // Post journal (immediate posting to ledger)
+    postMutation.mutate(payload);
+  };
+  
+  const onSaveDraft = () => {
+    const data = form.getValues();
     
-    // Redirect back to journals
-    navigate('/accounting/journals');
+    // Transform form data to API payload (allow unbalanced for drafts)
+    const payload = {
+      date: format(data.date, 'yyyy-MM-dd'),
+      reference: data.reference || `JE-DRAFT-${Date.now()}`,
+      description: data.description || 'Draft journal entry',
+      lines: data.lines.map(line => {
+        const debitValue = line.debit ? parseFloat(line.debit.replace(/[^0-9.-]+/g, '')) : 0;
+        const creditValue = line.credit ? parseFloat(line.credit.replace(/[^0-9.-]+/g, '')) : 0;
+        
+        return {
+          account_id: parseInt(line.account),
+          date: format(data.date, 'yyyy-MM-dd'),
+          debit: debitValue,
+          credit: creditValue,
+          memo: line.description || null,
+          entity_id: null,
+        };
+      }).filter(line => line.account && (line.debit || line.credit)), // Include lines with account and some amount
+    };
+    
+    if (payload.lines.length === 0) {
+      toast({
+        title: 'Cannot save empty draft',
+        description: 'Add at least one journal line with an account and amount.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    // Save as draft
+    draftMutation.mutate(payload);
   };
   
   const addLine = () => {
     append({ account: '', description: '', debit: '', credit: '', taxCode: '' });
   };
+
+  if (loadingAccounts) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-muted-foreground">Loading accounts...</p>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -687,24 +779,19 @@ const CreateJournal = () => {
                     type="button"
                     variant="outline"
                     className="gap-1"
-                    onClick={() => {
-                      // TODO: Save as draft
-                      toast({
-                        title: "Draft saved",
-                        description: "Journal entry has been saved as a draft.",
-                      });
-                    }}
+                    onClick={onSaveDraft}
+                    disabled={draftMutation.isPending || loadingAccounts}
                   >
                     <Save size={16} />
-                    Save as Draft
+                    {draftMutation.isPending ? 'Saving...' : 'Save as Draft'}
                   </Button>
                   <Button 
                     type="submit" 
-                    disabled={!totals.isBalanced}
+                    disabled={!totals.isBalanced || postMutation.isPending || loadingAccounts}
                     className="gap-1"
                   >
                     <Send size={16} />
-                    Create Journal
+                    {postMutation.isPending ? 'Posting...' : 'Create Journal'}
                   </Button>
                 </div>
               </form>

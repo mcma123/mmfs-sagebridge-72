@@ -39,6 +39,7 @@ async function run() {
     '008_accounting_seed.sql',
     '009_accounting_api_views.sql',
     '010_accounting_actions.sql',
+    '011_journal_workflow.sql',
   ];
   console.log('[migrate_app] Running files:', filesToRun.join(', '));
   for (const fname of filesToRun) {

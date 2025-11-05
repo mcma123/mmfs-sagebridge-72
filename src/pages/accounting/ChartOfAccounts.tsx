@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import MainLayout from '@/components/layout/MainLayout';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { getAccounts, getTrialBalance, deleteAccount } from '@/lib/api/accounting';
+import type { AccountDTO, TrialBalanceDTO } from '@/lib/api/accounting';
+import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import {
   Search,
@@ -46,6 +50,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const accounts = [
   // Assets - Client Premium Receivables
@@ -275,22 +289,73 @@ const accounts = [
   },
 ];
 
+// Helper function to determine category from account type
+const getCategoryFromType = (type: string): string => {
+  const typeLower = type.toLowerCase();
+
+  if (typeLower.includes('asset')) return 'Assets';
+  if (typeLower.includes('liabilit')) return 'Liabilities';
+  if (typeLower.includes('equity') || typeLower.includes('capital') || typeLower.includes('earnings')) return 'Equity';
+  if (typeLower.includes('income') || typeLower.includes('revenue')) return 'Income';
+  if (typeLower.includes('expense') || typeLower.includes('cost')) return 'Expenses';
+
+  // Default fallback
+  return 'Assets';
+};
+
 const ChartOfAccounts = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
-  
+  const [accountToDelete, setAccountToDelete] = useState<any | null>(null);
+
+  // Fetch accounts from API
+  const { data: accountsData, isLoading, error, refetch } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => getAccounts('accountant'),
+  });
+
+  // Fetch trial balance data
+  const { data: trialBalanceData } = useQuery({
+    queryKey: ['trial-balance'],
+    queryFn: () => getTrialBalance('accountant'),
+  });
+
+  // Create balance lookup map
+  const balanceMap = new Map<number, number>();
+  (trialBalanceData?.items || []).forEach((item: TrialBalanceDTO) => {
+    balanceMap.set(item.account_id, item.balance);
+  });
+
+  // Helper function to format currency
+  const formatCurrency = (amount: number, currency: string = 'ZAR'): string => {
+    return `R${amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // Transform API data to match component structure
+  const accounts = (accountsData?.items || []).map((account: AccountDTO) => ({
+    id: account.id,
+    name: account.name,
+    number: account.code,
+    category: getCategoryFromType(account.type),
+    subcategory: account.type,
+    description: '', // API doesn't return description yet
+    balance: formatCurrency(balanceMap.get(account.id) || 0, 'ZAR'),
+    active: account.is_active ?? true,
+    isSystem: false,
+  }));
+
   const filteredAccounts = accounts
-    .filter(account => 
+    .filter(account =>
       account.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       account.number.includes(searchTerm) ||
       account.description.toLowerCase().includes(searchTerm.toLowerCase())
     )
-    .filter(account => 
+    .filter(account =>
       selectedCategory ? account.category === selectedCategory : true
     );
-  
+
   const groupedAccounts: Record<string, typeof accounts> = {};
   filteredAccounts.forEach(account => {
     if (!groupedAccounts[account.category]) {
@@ -300,13 +365,33 @@ const ChartOfAccounts = () => {
   });
   
   const toggleSelectRow = (id: number) => {
-    setSelectedRows(prev => 
-      prev.includes(id) 
+    setSelectedRows(prev =>
+      prev.includes(id)
         ? prev.filter(rowId => rowId !== id)
         : [...prev, id]
     );
   };
-  
+
+  const handleDeleteAccount = async () => {
+    if (!accountToDelete) return;
+
+    try {
+      await deleteAccount(accountToDelete.id, 'accountant');
+      toast({
+        title: 'Account deleted',
+        description: `${accountToDelete.name} has been deleted.`,
+      });
+      refetch();
+      setAccountToDelete(null);
+    } catch (error: any) {
+      toast({
+        title: 'Failed to delete account',
+        description: error.message || 'An error occurred while deleting the account.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const toggleSelectAll = () => {
     if (selectedRows.length === filteredAccounts.length) {
       setSelectedRows([]);
@@ -344,6 +429,32 @@ const ChartOfAccounts = () => {
             <CardTitle className="text-lg">List of Accounts</CardTitle>
           </CardHeader>
           <CardContent>
+            {/* Loading State */}
+            {isLoading && (
+              <div className="flex justify-center items-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sage-blue"></div>
+                <span className="ml-3 text-muted-foreground">Loading accounts...</span>
+              </div>
+            )}
+
+            {/* Error State */}
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                <p className="text-red-800">Failed to load accounts. Please try again.</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => refetch()}
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
+
+            {/* Main Content */}
+            {!isLoading && !error && (
+            <>
             <div className="flex flex-col md:flex-row gap-4 justify-between mb-6">
               <div className="flex gap-2 flex-1">
                 <div className="relative flex-1">
@@ -355,7 +466,7 @@ const ChartOfAccounts = () => {
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
-                
+
                 <Select value={selectedCategory} onValueChange={setSelectedCategory}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="All Categories" />
@@ -369,12 +480,12 @@ const ChartOfAccounts = () => {
                     <SelectItem value="Expenses">Expenses</SelectItem>
                   </SelectContent>
                 </Select>
-                
+
                 <Button variant="outline" size="icon" className="shrink-0">
                   <Filter size={16} />
                 </Button>
               </div>
-              
+
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" className="gap-1">
                   <FileDown size={16} />
@@ -390,7 +501,7 @@ const ChartOfAccounts = () => {
                 </Button>
               </div>
             </div>
-            
+
             {selectedRows.length > 0 && (
               <div className="flex items-center gap-2 mb-4 p-2 bg-sage-lightGray rounded-md">
                 <CheckSquare size={16} className="text-sage-blue" />
@@ -471,12 +582,16 @@ const ChartOfAccounts = () => {
                                 <DropdownMenuItem onClick={() => navigate(`/accounting/account/${account.id}`)}>
                                   <Eye className="h-4 w-4 mr-2" /> View
                                 </DropdownMenuItem>
-                                <DropdownMenuItem disabled={account.isSystem}>
+                                <DropdownMenuItem
+                                  onClick={() => navigate(`/accounting/account/${account.id}/edit`)}
+                                  disabled={account.isSystem}
+                                >
                                   <Edit className="h-4 w-4 mr-2" /> Edit
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem 
-                                  disabled={account.isSystem} 
+                                <DropdownMenuItem
+                                  onClick={() => setAccountToDelete(account)}
+                                  disabled={account.isSystem}
                                   className="text-red-600 focus:bg-red-50 focus:text-red-700"
                                 >
                                   <Trash2 className="h-4 w-4 mr-2" /> Delete
@@ -491,8 +606,36 @@ const ChartOfAccounts = () => {
                 ))}
               </Table>
             </div>
+            </>
+            )}
           </CardContent>
         </Card>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={!!accountToDelete} onOpenChange={(open) => !open && setAccountToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete "{accountToDelete?.name}"? This action cannot be undone.
+                {accountToDelete?.isSystem && (
+                  <span className="block mt-2 text-red-600 font-medium">
+                    This is a system account and cannot be deleted.
+                  </span>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteAccount}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </motion.div>
     </MainLayout>
   );
