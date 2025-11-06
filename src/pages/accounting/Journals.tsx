@@ -59,6 +59,13 @@ const Journals = () => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['journals', activeTab],
     queryFn: () => getJournals({ status: activeTab }, role as any),
+    onError: (error: any) => {
+      toast({
+        title: 'Error loading journals',
+        description: error.message || 'Failed to load journals from database',
+        variant: 'destructive',
+      });
+    },
   });
   
   // Filter journal entries based on search term (client-side)

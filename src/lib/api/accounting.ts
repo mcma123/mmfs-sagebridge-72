@@ -1,6 +1,8 @@
 // Lightweight Accounting API client for frontend use
 // Follows the pattern used in src/lib/api/documents.ts
 
+import { getAccessToken } from '@/lib/api/auth';
+
 export type Role = 'admin' | 'accountant' | 'editor' | 'viewer';
 
 let API_BASE = '/api/v1/accounting';
@@ -164,8 +166,58 @@ export type TrialBalanceDTO = {
   balance: number;
 };
 
-export async function getTrialBalance(role: Role = 'accountant') {
-  return apiFetch<{ items: TrialBalanceDTO[] }>(`/trial-balance`, { method: 'GET' }, role);
+export async function getTrialBalance(
+  params?: { asOfDate?: string },
+  role: Role = 'accountant'
+) {
+  const queryParams = new URLSearchParams();
+  if (params?.asOfDate) {
+    queryParams.append('asOfDate', params.asOfDate);
+  }
+  const queryString = queryParams.toString();
+  const url = queryString ? `/trial-balance?${queryString}` : '/trial-balance';
+  return apiFetch<{ items: TrialBalanceDTO[] }>(url, { method: 'GET' }, role);
+}
+
+export async function exportTrialBalance(
+  params?: { asOfDate?: string },
+  role: Role = 'accountant'
+): Promise<Blob> {
+  const queryParams = new URLSearchParams();
+  if (params?.asOfDate) {
+    queryParams.append('asOfDate', params.asOfDate);
+  }
+  const queryString = queryParams.toString();
+  const url = queryString ? `/trial-balance/export?${queryString}` : '/trial-balance/export';
+
+  // Safely retrieve access token with defensive error handling
+  const token = (() => {
+    try {
+      return getAccessToken();
+    } catch (error) {
+      console.warn('Failed to retrieve access token:', error);
+      return null;
+    }
+  })();
+
+  const headers: Record<string, string> = {
+    'X-Role': role,
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`/api/v1/accounting${url}`, {
+    method: 'GET',
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData?.error?.message || errorData?.message || 'Failed to export trial balance');
+  }
+
+  return response.blob();
 }
 
 export type UpdateAccountRequest = {

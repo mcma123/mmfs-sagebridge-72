@@ -135,3 +135,6 @@ If you still see errors after following these steps:
 3. Check the console for specific error messages (now more helpful!)
 4. Verify journal IDs exist in the database
 
+
+
+

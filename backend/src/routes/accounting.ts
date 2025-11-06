@@ -1,5 +1,6 @@
 import express from 'express';
 import { authorize } from '../middleware/rbac';
+import ExcelJS from 'exceljs';
 
 const router = express.Router();
 
@@ -354,12 +355,222 @@ router.get('/ledger', authorize(['admin','accountant','editor','viewer']), async
   } catch (err) { next(err); }
 });
 
-// Trial balance (current)
+// Trial balance (with optional date filter)
 router.get('/trial-balance', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
   try {
-    const { data, error } = await req.db.from('accounting_trial_balance_current').select('*');
-    if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
-    res.json({ items: data || [] });
+    const { asOfDate } = req.query;
+
+    // Validate date if provided
+    let dateParam = null;
+    if (asOfDate) {
+      const parsedDate = new Date(asOfDate as string);
+      if (isNaN(parsedDate.getTime())) {
+        throw { status: 400, code: 'INVALID_DATE', message: 'Invalid date format. Use YYYY-MM-DD.' };
+      }
+      // Check if date is not in the future
+      if (parsedDate > new Date()) {
+        throw { status: 400, code: 'FUTURE_DATE', message: 'Date cannot be in the future.' };
+      }
+      dateParam = asOfDate;
+    }
+
+    // Check if function exists first
+    try {
+      const fnCheck = await req.pg.query(`
+        SELECT EXISTS (
+          SELECT 1 FROM pg_proc p
+          JOIN pg_namespace n ON p.pronamespace = n.oid
+          WHERE n.nspname = 'accounting'
+          AND p.proname = 'fn_trial_balance_asof'
+        ) as exists
+      `);
+      
+      if (!fnCheck.rows[0].exists) {
+        console.error('Trial balance function does not exist. Run migration 012_trial_balance_filters.sql');
+        throw { 
+          status: 500, 
+          code: 'MIGRATION_MISSING', 
+          message: 'Trial balance function not found. Please run database migration 012.' 
+        };
+      }
+    } catch (checkErr: any) {
+      if (checkErr.status === 500) throw checkErr;
+      console.error('Error checking for trial balance function:', checkErr);
+    }
+
+    // Call the SQL function with date parameter (uses current date if null)
+    const result = await req.pg.query(
+      'SELECT * FROM accounting.fn_trial_balance_asof($1::DATE)',
+      [dateParam]
+    );
+
+    res.json({ items: result.rows || [] });
+  } catch (err) { next(err); }
+});
+
+// Export trial balance to Excel
+router.get('/trial-balance/export', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const { asOfDate } = req.query;
+
+    // Validate date if provided
+    let dateParam = null;
+    let formattedDate = new Date().toISOString().split('T')[0];
+    if (asOfDate) {
+      const parsedDate = new Date(asOfDate as string);
+      if (isNaN(parsedDate.getTime())) {
+        throw { status: 400, code: 'INVALID_DATE', message: 'Invalid date format. Use YYYY-MM-DD.' };
+      }
+      if (parsedDate > new Date()) {
+        throw { status: 400, code: 'FUTURE_DATE', message: 'Date cannot be in the future.' };
+      }
+      dateParam = asOfDate;
+      formattedDate = asOfDate as string;
+    }
+
+    // Fetch trial balance data
+    const result = await req.pg.query(
+      'SELECT * FROM accounting.fn_trial_balance_asof($1::DATE)',
+      [dateParam]
+    );
+
+    const items = result.rows || [];
+
+    // Create Excel workbook
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Trial Balance');
+
+    // Set column widths
+    worksheet.columns = [
+      { header: 'Account Code', key: 'code', width: 15 },
+      { header: 'Account Name', key: 'name', width: 40 },
+      { header: 'Debit', key: 'debit', width: 18 },
+      { header: 'Credit', key: 'credit', width: 18 }
+    ];
+
+    // Style header row
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' }
+    };
+
+    // Helper function to determine if account type has debit normal balance
+    const isDebitNormalBalance = (type: string) => {
+      return ['Asset', 'Expense'].includes(type);
+    };
+
+    // Group accounts by category
+    const categories = items.reduce((acc: any, item: any) => {
+      const category = item.type || 'Other';
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(item);
+      return acc;
+    }, {});
+
+    // Category order for accounting
+    const categoryOrder = ['Asset', 'Liability', 'Equity', 'Income', 'Expense', 'Other'];
+
+    let currentRow = 2;
+    let grandTotalDebit = 0;
+    let grandTotalCredit = 0;
+
+    // Add data by category
+    categoryOrder.forEach(category => {
+      if (!categories[category]) return;
+
+      const accounts = categories[category];
+      let categoryDebit = 0;
+      let categoryCredit = 0;
+
+      // Add category header
+      const categoryRow = worksheet.getRow(currentRow);
+      categoryRow.getCell(1).value = category;
+      categoryRow.font = { bold: true };
+      categoryRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF0F0F0' }
+      };
+      currentRow++;
+
+      // Add accounts in category
+      accounts.forEach((account: any) => {
+        const balance = Number(account.balance) || 0;
+        const isDebit = isDebitNormalBalance(account.type);
+
+        let debitAmount = 0;
+        let creditAmount = 0;
+
+        if (balance !== 0) {
+          if ((isDebit && balance > 0) || (!isDebit && balance < 0)) {
+            debitAmount = Math.abs(balance);
+          } else {
+            creditAmount = Math.abs(balance);
+          }
+        }
+
+        categoryDebit += debitAmount;
+        categoryCredit += creditAmount;
+
+        const row = worksheet.getRow(currentRow);
+        row.getCell(1).value = account.code;
+        row.getCell(2).value = account.name;
+        row.getCell(3).value = debitAmount > 0 ? debitAmount : '';
+        row.getCell(4).value = creditAmount > 0 ? creditAmount : '';
+
+        // Format currency cells
+        if (debitAmount > 0) {
+          row.getCell(3).numFmt = 'R#,##0.00';
+        }
+        if (creditAmount > 0) {
+          row.getCell(4).numFmt = 'R#,##0.00';
+        }
+
+        currentRow++;
+      });
+
+      // Add category subtotal
+      const subtotalRow = worksheet.getRow(currentRow);
+      subtotalRow.getCell(2).value = `${category} Subtotal`;
+      subtotalRow.getCell(3).value = categoryDebit > 0 ? categoryDebit : '';
+      subtotalRow.getCell(4).value = categoryCredit > 0 ? categoryCredit : '';
+      subtotalRow.font = { bold: true };
+      if (categoryDebit > 0) {
+        subtotalRow.getCell(3).numFmt = 'R#,##0.00';
+      }
+      if (categoryCredit > 0) {
+        subtotalRow.getCell(4).numFmt = 'R#,##0.00';
+      }
+
+      grandTotalDebit += categoryDebit;
+      grandTotalCredit += categoryCredit;
+
+      currentRow += 2; // Add blank row after category
+    });
+
+    // Add grand totals
+    const totalRow = worksheet.getRow(currentRow);
+    totalRow.getCell(2).value = 'Grand Total';
+    totalRow.getCell(3).value = grandTotalDebit;
+    totalRow.getCell(4).value = grandTotalCredit;
+    totalRow.font = { bold: true, size: 12 };
+    totalRow.getCell(3).numFmt = 'R#,##0.00';
+    totalRow.getCell(4).numFmt = 'R#,##0.00';
+    totalRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD0D0D0' }
+    };
+
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    // Set headers for file download
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="trial-balance-${formattedDate}.xlsx"`);
+    res.send(buffer);
   } catch (err) { next(err); }
 });
 

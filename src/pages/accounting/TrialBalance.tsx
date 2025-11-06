@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import MainLayout from '@/components/layout/MainLayout';
 import { useNavigate } from 'react-router-dom';
@@ -10,6 +10,7 @@ import {
   ChevronDown,
   CalendarRange,
   ArrowLeft,
+  Loader2,
 } from 'lucide-react';
 import {
   Card,
@@ -32,7 +33,7 @@ import {
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn, sanitizeNumber } from '@/lib/utils';
 import {
   Collapsible,
   CollapsibleContent,
@@ -46,86 +47,224 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useQuery } from '@tanstack/react-query';
+import { getTrialBalance, exportTrialBalance, type TrialBalanceDTO } from '@/lib/api/accounting';
+import { getPrimaryRole } from '@/lib/api/auth';
+import { useToast } from '@/hooks/use-toast';
 
-// Sample trial balance data
-const trialBalance = {
-  asOfDate: '2023-06-05',
-  categories: [
-    {
-      name: 'Assets',
-      accounts: [
-        { name: 'Cash', accountNumber: '10001', debit: 'R25,000.00', credit: '' },
-        { name: 'Accounts Receivable', accountNumber: '10002', debit: 'R15,000.00', credit: '' },
-        { name: 'Inventory', accountNumber: '10003', debit: 'R32,100.00', credit: '' },
-        { name: 'Prepaid Expenses', accountNumber: '10004', debit: 'R3,500.00', credit: '' },
-        { name: 'Office Equipment', accountNumber: '10101', debit: 'R15,800.00', credit: '' },
-        { name: 'Accumulated Depreciation', accountNumber: '10102', debit: '', credit: 'R4,200.00' },
-      ],
-      totalDebit: 'R91,400.00',
-      totalCredit: 'R4,200.00'
-    },
-    {
-      name: 'Liabilities',
-      accounts: [
-        { name: 'Accounts Payable', accountNumber: '20001', debit: '', credit: 'R12,300.00' },
-        { name: 'Salaries Payable', accountNumber: '20002', debit: '', credit: 'R8,500.00' },
-        { name: 'VAT Payable', accountNumber: '20003', debit: '', credit: 'R5,400.00' },
-        { name: 'Long-term Loan', accountNumber: '20101', debit: '', credit: 'R75,000.00' },
-      ],
-      totalDebit: 'R0.00',
-      totalCredit: 'R101,200.00'
-    },
-    {
-      name: 'Equity',
-      accounts: [
-        { name: 'Share Capital', accountNumber: '30001', debit: '', credit: 'R50,000.00' },
-        { name: 'Retained Earnings', accountNumber: '30002', debit: '', credit: 'R43,200.00' },
-      ],
-      totalDebit: 'R0.00',
-      totalCredit: 'R93,200.00'
-    },
-    {
-      name: 'Income',
-      accounts: [
-        { name: 'Sales Revenue', accountNumber: '40001', debit: '', credit: 'R124,500.00' },
-        { name: 'Interest Income', accountNumber: '40002', debit: '', credit: 'R1,250.00' },
-      ],
-      totalDebit: 'R0.00',
-      totalCredit: 'R125,750.00'
-    },
-    {
-      name: 'Expenses',
-      accounts: [
-        { name: 'Cost of Goods Sold', accountNumber: '50001', debit: 'R68,300.00', credit: '' },
-        { name: 'Rent Expense', accountNumber: '50002', debit: 'R12,000.00', credit: '' },
-        { name: 'Utility Expense', accountNumber: '50003', debit: 'R3,450.00', credit: '' },
-        { name: 'Salaries Expense', accountNumber: '50004', debit: 'R42,000.00', credit: '' },
-        { name: 'Depreciation', accountNumber: '50005', debit: 'R5,200.00', credit: '' },
-        { name: 'Office Supplies', accountNumber: '50006', debit: 'R2,000.00', credit: '' },
-      ],
-      totalDebit: 'R132,950.00',
-      totalCredit: 'R0.00'
-    }
-  ],
-  grandTotalDebit: 'R224,350.00',
-  grandTotalCredit: 'R224,350.00'
+// Helper function to format currency
+const formatCurrency = (amount: number): string => {
+  const value = Number.isFinite(amount) ? amount : 0;
+  return new Intl.NumberFormat('en-ZA', {
+    style: 'currency',
+    currency: 'ZAR',
+    minimumFractionDigits: 2,
+  }).format(Math.abs(value));
+};
+
+// Helper function to determine if an account type is a debit normal balance
+const isDebitNormalBalance = (type: string): boolean => {
+  const normalizedType = type.toLowerCase();
+  return normalizedType.includes('asset') || normalizedType.includes('expense');
+};
+
+// Helper function to get category from account type
+const getCategoryFromType = (type: string): string => {
+  const normalizedType = type.toLowerCase();
+  if (normalizedType.includes('asset')) return 'Assets';
+  if (normalizedType.includes('liabilit')) return 'Liabilities';
+  if (normalizedType.includes('equity')) return 'Equity';
+  if (normalizedType.includes('income') || normalizedType.includes('revenue')) return 'Income';
+  if (normalizedType.includes('expense')) return 'Expenses';
+  return 'Other';
 };
 
 const TrialBalance = () => {
   const navigate = useNavigate();
-  const [asOfDate, setAsOfDate] = useState<Date | undefined>(new Date(trialBalance.asOfDate));
+  const { toast } = useToast();
+  const role = getPrimaryRole();
+
+  const [asOfDate, setAsOfDate] = useState<Date | undefined>(new Date());
   const [openCategories, setOpenCategories] = useState<string[]>(['Assets', 'Liabilities', 'Equity', 'Income', 'Expenses']);
-  const [trialBalanceType, setTrialBalanceType] = useState('standard');
   const [comparisonPeriod, setComparisonPeriod] = useState('none');
-  
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Handle comparison period changes
+  const handleComparisonPeriodChange = (value: string) => {
+    setComparisonPeriod(value);
+
+    // Calculate and set the appropriate date based on comparison period
+    const today = new Date();
+    if (value === 'previousMonth') {
+      const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 0); // Last day of previous month
+      setAsOfDate(lastMonth);
+    } else if (value === 'previousYear') {
+      const lastYear = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
+      setAsOfDate(lastYear);
+    } else if (value === 'none') {
+      setAsOfDate(new Date());
+    }
+    // For 'custom', keep the current asOfDate value (user will set via date picker)
+  };
+
+  // Fetch trial balance data from API
+  const { data: trialBalanceData, isLoading, isError, error } = useQuery({
+    queryKey: ['trial-balance', role, asOfDate?.toISOString().split('T')[0]],
+    queryFn: () => getTrialBalance(
+      { asOfDate: asOfDate?.toISOString().split('T')[0] },
+      role
+    ),
+  });
+
+  // Handle Excel export
+  const handleExport = async () => {
+    try {
+      setIsExporting(true);
+      const blob = await exportTrialBalance(
+        { asOfDate: asOfDate?.toISOString().split('T')[0] },
+        role
+      );
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `trial-balance-${asOfDate?.toISOString().split('T')[0] || 'current'}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Export successful',
+        description: 'Trial balance has been exported to Excel',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Export failed',
+        description: error.message || 'Failed to export trial balance',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Show error toast when query fails
+  React.useEffect(() => {
+    if (isError && error) {
+      toast({
+        title: 'Error loading trial balance',
+        description: (error as any).message || 'Failed to load trial balance data',
+        variant: 'destructive',
+      });
+    }
+  }, [isError, error, toast]);
+
+  // Transform flat trial balance data into categorized structure
+  const { categories, grandTotalDebit, grandTotalCredit } = useMemo(() => {
+    const items = trialBalanceData?.items || [];
+
+    if (items.length === 0) {
+      return {
+        categories: [],
+        grandTotalDebit: 0,
+        grandTotalCredit: 0,
+      };
+    }
+
+    // Group accounts by category
+    const categoryMap: Record<string, {
+      name: string;
+      accounts: Array<{
+        name: string;
+        accountNumber: string;
+        debit: number;
+        credit: number;
+        balance: number;
+      }>;
+      totalDebit: number;
+      totalCredit: number;
+    }> = {};
+
+    let grandDebit = 0;
+    let grandCredit = 0;
+
+    items.forEach((item: TrialBalanceDTO) => {
+      // Sanitize balance to a finite number to prevent NaN issues
+      const balance = sanitizeNumber(item.balance);
+      const category = getCategoryFromType(item.type);
+      const isDebitNormal = isDebitNormalBalance(item.type);
+
+      // Calculate debit and credit amounts based on balance and account type
+      let debit = 0;
+      let credit = 0;
+
+      if (isDebitNormal) {
+        // For debit normal balance accounts (Assets, Expenses)
+        if (balance >= 0) {
+          debit = balance;
+        } else {
+          credit = Math.abs(balance);
+        }
+      } else {
+        // For credit normal balance accounts (Liabilities, Equity, Income)
+        if (balance >= 0) {
+          credit = balance;
+        } else {
+          debit = Math.abs(balance);
+        }
+      }
+
+      // Initialize category if it doesn't exist
+      if (!categoryMap[category]) {
+        categoryMap[category] = {
+          name: category,
+          accounts: [],
+          totalDebit: 0,
+          totalCredit: 0,
+        };
+      }
+
+      // Add account to category
+      categoryMap[category].accounts.push({
+        name: item.name,
+        accountNumber: item.code,
+        debit,
+        credit,
+        balance: balance,
+      });
+
+      // Update category totals (sanitize to ensure no NaN accumulation)
+      categoryMap[category].totalDebit = sanitizeNumber(categoryMap[category].totalDebit + debit);
+      categoryMap[category].totalCredit = sanitizeNumber(categoryMap[category].totalCredit + credit);
+
+      // Update grand totals (sanitize to ensure no NaN accumulation)
+      grandDebit = sanitizeNumber(grandDebit + debit);
+      grandCredit = sanitizeNumber(grandCredit + credit);
+    });
+
+    // Convert map to array and sort categories
+    const categoryOrder = ['Assets', 'Liabilities', 'Equity', 'Income', 'Expenses', 'Other'];
+    const categoriesArray = categoryOrder
+      .map(name => categoryMap[name])
+      .filter(Boolean);
+
+    return {
+      categories: categoriesArray,
+      grandTotalDebit: grandDebit,
+      grandTotalCredit: grandCredit,
+    };
+  }, [trialBalanceData]);
+
   const toggleCategory = (category: string) => {
-    setOpenCategories(prev => 
+    setOpenCategories(prev =>
       prev.includes(category)
         ? prev.filter(cat => cat !== category)
         : [...prev, category]
     );
   };
-  
+
   const isCollapsibleOpen = (category: string) => openCategories.includes(category);
 
   return (
@@ -189,19 +328,8 @@ const TrialBalance = () => {
                     />
                   </PopoverContent>
                 </Popover>
-                
-                <Select value={trialBalanceType} onValueChange={setTrialBalanceType}>
-                  <SelectTrigger className="w-[200px]">
-                    <SelectValue placeholder="Trial Balance Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="standard">Standard</SelectItem>
-                    <SelectItem value="unadjusted">Unadjusted</SelectItem>
-                    <SelectItem value="adjusted">Adjusted</SelectItem>
-                  </SelectContent>
-                </Select>
-                
-                <Select value={comparisonPeriod} onValueChange={setComparisonPeriod}>
+
+                <Select value={comparisonPeriod} onValueChange={handleComparisonPeriodChange}>
                   <SelectTrigger className="w-[200px]">
                     <SelectValue placeholder="Comparison" />
                   </SelectTrigger>
@@ -215,9 +343,23 @@ const TrialBalance = () => {
               </div>
               
               <div className="flex gap-2">
-                <Button variant="outline" className="gap-1">
-                  <FileDown size={16} />
-                  Export
+                <Button
+                  variant="outline"
+                  className="gap-1"
+                  onClick={handleExport}
+                  disabled={isExporting || isLoading}
+                >
+                  {isExporting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <FileDown size={16} />
+                      Export
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
@@ -229,15 +371,14 @@ const TrialBalance = () => {
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-lg">
-                Trial Balance as of {asOfDate ? format(asOfDate, "MMMM dd, yyyy") : trialBalance.asOfDate}
+                Trial Balance as of {asOfDate ? format(asOfDate, "MMMM dd, yyyy") : format(new Date(), "MMMM dd, yyyy")}
               </CardTitle>
               <p className="text-sm text-muted-foreground mt-1">
-                {trialBalanceType === 'standard' ? 'Standard' : 
-                 trialBalanceType === 'unadjusted' ? 'Unadjusted' : 'Adjusted'} Trial Balance
+                Standard Trial Balance
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setOpenCategories(openCategories.length === trialBalance.categories.length ? [] : trialBalance.categories.map(c => c.name))}>
-              {openCategories.length === trialBalance.categories.length ? 'Collapse All' : 'Expand All'}
+            <Button variant="outline" size="sm" onClick={() => setOpenCategories(openCategories.length === categories.length ? [] : categories.map(c => c.name))}>
+              {openCategories.length === categories.length ? 'Collapse All' : 'Expand All'}
             </Button>
           </CardHeader>
           <CardContent>
@@ -253,67 +394,99 @@ const TrialBalance = () => {
                 </TableHeader>
                 
                 <TableBody>
-                  {trialBalance.categories.map((category) => (
-                    <React.Fragment key={category.name}>
-                      <TableRow className="hover:bg-sage-lightGray cursor-pointer" onClick={() => toggleCategory(category.name)}>
-                        <TableCell className="font-bold flex items-center">
-                          {isCollapsibleOpen(category.name) ? 
-                            <ChevronDown size={16} className="mr-2" /> : 
-                            <ChevronRight size={16} className="mr-2" />
-                          }
-                          {category.name}
-                        </TableCell>
-                        <TableCell></TableCell>
-                        <TableCell className="text-right font-medium font-mono">
-                          {category.totalDebit !== 'R0.00' ? category.totalDebit : ''}
-                        </TableCell>
-                        <TableCell className="text-right font-medium font-mono">
-                          {category.totalCredit !== 'R0.00' ? category.totalCredit : ''}
-                        </TableCell>
-                      </TableRow>
-                      
-                      {isCollapsibleOpen(category.name) && category.accounts.map((account) => (
-                        <TableRow key={account.accountNumber} className="bg-sage-lightGray/20">
-                          <TableCell className="pl-8">{account.name}</TableCell>
-                          <TableCell className="font-mono text-xs">{account.accountNumber}</TableCell>
-                          <TableCell className="text-right font-mono">
-                            {account.debit || ''}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {account.credit || ''}
-                          </TableCell>
-                        </TableRow>
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-12">
+                        <div className="flex items-center justify-center">
+                          <Loader2 className="h-8 w-8 animate-spin text-sage-blue" />
+                          <span className="ml-3 text-muted-foreground">Loading trial balance...</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : isError ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-12">
+                        <p className="text-destructive">Failed to load trial balance data</p>
+                        <p className="text-sm text-muted-foreground mt-2">Please try refreshing the page</p>
+                      </TableCell>
+                    </TableRow>
+                  ) : categories.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-12 text-muted-foreground">
+                        No accounts found
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    <>
+                      {categories.map((category) => (
+                        <React.Fragment key={category.name}>
+                          <TableRow className="hover:bg-sage-lightGray cursor-pointer" onClick={() => toggleCategory(category.name)}>
+                            <TableCell className="font-bold flex items-center">
+                              {isCollapsibleOpen(category.name) ?
+                                <ChevronDown size={16} className="mr-2" /> :
+                                <ChevronRight size={16} className="mr-2" />
+                              }
+                              {category.name}
+                            </TableCell>
+                            <TableCell></TableCell>
+                            <TableCell className="text-right font-medium font-mono">
+                              {category.totalDebit > 0 ? formatCurrency(category.totalDebit) : ''}
+                            </TableCell>
+                            <TableCell className="text-right font-medium font-mono">
+                              {category.totalCredit > 0 ? formatCurrency(category.totalCredit) : ''}
+                            </TableCell>
+                          </TableRow>
+                          {isCollapsibleOpen(category.name) && category.accounts.map((account) => (
+                            <TableRow key={`${category.name}-${account.accountNumber}`} className="bg-sage-lightGray/20">
+                              <TableCell className="pl-8">{account.name}</TableCell>
+                              <TableCell className="font-mono text-xs">{account.accountNumber}</TableCell>
+                              <TableCell className="text-right font-mono">
+                                {account.debit > 0 ? formatCurrency(account.debit) : ''}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {account.credit > 0 ? formatCurrency(account.credit) : ''}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </React.Fragment>
                       ))}
-                    </React.Fragment>
-                  ))}
-                  
-                  {/* Grand Totals */}
-                  <TableRow className="font-bold bg-sage-lightGray">
-                    <TableCell colSpan={2}>Grand Totals</TableCell>
-                    <TableCell className="text-right font-mono">{trialBalance.grandTotalDebit}</TableCell>
-                    <TableCell className="text-right font-mono">{trialBalance.grandTotalCredit}</TableCell>
-                  </TableRow>
+
+                      {/* Grand Totals */}
+                      <TableRow className="font-bold bg-sage-lightGray">
+                        <TableCell colSpan={2}>Grand Totals</TableCell>
+                        <TableCell className="text-right font-mono">{formatCurrency(grandTotalDebit)}</TableCell>
+                        <TableCell className="text-right font-mono">{formatCurrency(grandTotalCredit)}</TableCell>
+                      </TableRow>
+                    </>
+                  )}
                 </TableBody>
               </Table>
             </div>
             
-            <div className="mt-6 flex justify-between items-center p-4 bg-sage-lightGray/20 rounded-md">
-              <div className="flex gap-10">
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Debits</p>
-                  <p className="text-lg font-medium">{trialBalance.grandTotalDebit}</p>
+            {!isLoading && !isError && categories.length > 0 && (
+              <div className="mt-6 flex justify-between items-center p-4 bg-sage-lightGray/20 rounded-md">
+                <div className="flex gap-10">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Debits</p>
+                    <p className="text-lg font-medium">{formatCurrency(grandTotalDebit)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Credits</p>
+                    <p className="text-lg font-medium">{formatCurrency(grandTotalCredit)}</p>
+                  </div>
                 </div>
+
                 <div>
-                  <p className="text-sm text-muted-foreground">Total Credits</p>
-                  <p className="text-lg font-medium">{trialBalance.grandTotalCredit}</p>
+                  <p className="text-sm text-muted-foreground">Difference</p>
+                  <p className={cn(
+                    "text-lg font-medium",
+                    Math.abs(grandTotalDebit - grandTotalCredit) > 0.01 && "text-destructive"
+                  )}>
+                    {formatCurrency(Math.abs(grandTotalDebit - grandTotalCredit))}
+                  </p>
                 </div>
               </div>
-              
-              <div>
-                <p className="text-sm text-muted-foreground">Difference</p>
-                <p className="text-lg font-medium">R0.00</p>
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
         

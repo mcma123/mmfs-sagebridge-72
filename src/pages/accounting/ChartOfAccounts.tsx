@@ -314,12 +314,26 @@ const ChartOfAccounts = () => {
   const { data: accountsData, isLoading, error, refetch } = useQuery({
     queryKey: ['accounts'],
     queryFn: () => getAccounts('accountant'),
+    onError: (error: any) => {
+      toast({
+        title: 'Error loading accounts',
+        description: error.message || 'Failed to load chart of accounts from database',
+        variant: 'destructive',
+      });
+    },
   });
 
   // Fetch trial balance data
   const { data: trialBalanceData } = useQuery({
     queryKey: ['trial-balance'],
     queryFn: () => getTrialBalance('accountant'),
+    onError: (error: any) => {
+      toast({
+        title: 'Error loading balances',
+        description: error.message || 'Failed to load account balances',
+        variant: 'destructive',
+      });
+    },
   });
 
   // Create balance lookup map

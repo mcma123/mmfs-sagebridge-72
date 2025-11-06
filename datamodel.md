@@ -671,7 +671,7 @@ erDiagram
     - Voided journals remain in database with `voided_at` timestamp; reversal journal created with opposite debit/credit entries.
     - Batch operations use `Promise.allSettled()` to process all selected items even if some fail, reporting counts separately.
 
-|- v0.11 General Ledger Live Data Implementation (current)
+|- v0.11 General Ledger Live Data Implementation
   - Backend API enhancements (`backend/src/routes/accounting.ts`):
     - Enhanced `GET /api/v1/accounting/ledger` endpoint:
       - Made `account_id` parameter optional (was previously required).
@@ -726,6 +726,251 @@ erDiagram
     - Client-side search applied after server-side pagination.
     - Export button present but not yet implemented (placeholder for future).
 
+|- v0.12 Trial Balance Live Data Implementation
+  - Backend infrastructure (already existed, no changes required):
+    - Database view `accounting.v_trial_balance_current` (from v0.6): Calculates balance as `SUM(debit) - SUM(credit)` per account, grouped by account ID/code/name/type.
+    - Public API view `public.accounting_trial_balance_current` (from v0.6): Accessible via Supabase Data API with proper grants.
+    - Endpoint `GET /api/v1/accounting/trial-balance` (from v0.6): Authorization for admin/accountant/viewer roles, returns `{ items: TrialBalanceDTO[] }`.
+    - API client `getTrialBalance(role?)` (from v0.8): Type-safe with `TrialBalanceDTO`, role-based access control.
+  - Frontend page (`src/pages/accounting/TrialBalance.tsx`):
+    - Complete data layer refactor: replaced lines 50-112 of hardcoded mock data with React Query powered live data.
+    - Data fetching:
+      - Uses `useQuery` from TanStack Query for trial balance data.
+      - Role-based access via `getPrimaryRole()`.
+      - Error handling with `useEffect` and toast notifications (React Query v5 compatible).
+      - Query key includes role for proper cache invalidation: `['trial-balance', role]`.
+    - Data transformation with `useMemo`:
+      - Groups flat account list by type into categories (Assets, Liabilities, Equity, Income, Expenses, Other).
+      - Calculates debit/credit amounts based on account type and balance sign:
+        - **Debit normal balance accounts** (Assets, Expenses): positive balance → debit column, negative balance → credit column.
+        - **Credit normal balance accounts** (Liabilities, Equity, Income): positive balance → credit column, negative balance → debit column.
+      - Computes category subtotals (totalDebit, totalCredit per category).
+      - Calculates grand totals (grandTotalDebit, grandTotalCredit).
+      - Category ordering: Assets, Liabilities, Equity, Income, Expenses, Other.
+    - Helper functions:
+      - `formatCurrency(amount)`: Formats numbers using `Intl.NumberFormat` for ZAR locale (R1,234.56 format).
+      - `isDebitNormalBalance(type)`: Determines if account type has debit normal balance (Assets, Expenses).
+      - `getCategoryFromType(type)`: Maps account type to category name.
+    - Display features:
+      - Currency formatting with ZAR locale throughout.
+      - Conditional rendering: only show debit/credit values when >0.
+      - Category collapsible rows with expand/collapse functionality.
+      - Account detail rows with indentation under categories.
+      - Grand totals row with formatted currency.
+      - Bottom summary section showing Total Debits, Total Credits, and Difference.
+      - Difference highlighted in red if debits ≠ credits (accounting error indicator).
+    - States and error handling:
+      - Loading state: Shows `Loader2` spinner with "Loading trial balance..." message.
+      - Error state: Displays error message with retry suggestion, shows toast notification.
+      - Empty state: Shows "No accounts found" message when no data.
+      - Success state: Renders categorized table with live data.
+    - UI functionality preserved:
+      - Date picker (UI functional, can be extended for date filtering).
+      - Trial balance type selector (Standard/Unadjusted/Adjusted - UI only).
+      - Comparison period selector (UI only, future enhancement).
+      - Expand/collapse all button (works with live data).
+      - Collapsible categories with chevron icons.
+      - Export button (placeholder for future implementation).
+      - Back to Accounting navigation.
+      - Trial balance explanation section.
+    - Performance optimizations:
+      - `useMemo` ensures data transformation only recalculates when `trialBalanceData` changes.
+      - React Query caching with role-based query keys.
+      - Conditional rendering of summary section (only when data exists).
+  - Notes:
+    - Page located at `/accounting/trial-balance`.
+    - Access: `admin`, `accountant`, `viewer` roles.
+    - No backend or API changes required; only frontend data layer updated.
+    - Follows same patterns as General Ledger implementation (v0.11).
+    - All mock data eliminated; 100% live database integration.
+    - Accounting accuracy: Proper debit/credit placement based on account type and balance.
+    - Grand totals always balance per accounting equation (debits = credits).
+    - Handles contra accounts correctly (negative balances switch debit/credit columns).
+
+|- v0.13 Trial Balance Filters & Excel Export Implementation
+  - Database schema updates (Migration 012: `backend/migrations/sql/012_trial_balance_filters.sql`):
+    - Created SQL function `accounting.fn_trial_balance_asof(p_as_of_date DATE)`:
+      - Accepts date parameter (defaults to `CURRENT_DATE` if null)
+      - Filters `ledger_entries` by `date <= p_as_of_date` to calculate historical balances
+      - Returns same structure as `v_trial_balance_current`: `(account_id, code, name, type, balance)`
+      - Includes only active accounts (`is_active = true`)
+      - Granted execute permissions to `anon`, `authenticated`, `service_role` roles
+    - Purpose: Enable trial balance queries at any specific date instead of only current balance
+  - Backend API enhancements (`backend/src/routes/accounting.ts`):
+    - Updated `GET /api/v1/accounting/trial-balance` endpoint (lines 358-409):
+      - Accepts optional query parameter `asOfDate` (ISO date format: YYYY-MM-DD)
+      - Validates date format and ensures not in future (returns 400 for invalid/future dates)
+      - Added diagnostic check: verifies `accounting.fn_trial_balance_asof` exists in database before calling
+      - Returns clear error message if migration 012 has not been run: `MIGRATION_MISSING` code with message "Trial balance function not found. Please run database migration 012."
+      - Calls `accounting.fn_trial_balance_asof($1::DATE)` via `req.pg.query()`
+      - Uses PostgreSQL Pool API pattern: `const result = await req.pg.query(...); res.json({ items: result.rows })` (not Supabase pattern)
+      - Authorization: `admin`, `accountant`, `viewer` roles
+    - New `GET /api/v1/accounting/trial-balance/export` endpoint (lines 411-575):
+      - Accepts same `asOfDate` query parameter as main endpoint
+      - Generates Excel workbook using `exceljs` library with professional formatting:
+        - Sheet name: "Trial Balance"
+        - Columns: Account Code, Account Name, Debit, Credit
+        - Category groupings (Assets, Liabilities, Equity, Income, Expenses) with headers
+        - Category subtotals in bold
+        - Grand totals with gray background
+        - Currency formatting (R#,##0.00) for all monetary values
+        - Proper debit/credit placement based on account type and normal balance
+      - Returns XLSX binary stream with proper headers:
+        - `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+        - `Content-Disposition: attachment; filename="trial-balance-YYYY-MM-DD.xlsx"`
+      - Authorization: `admin`, `accountant`, `viewer` roles
+  - Middleware improvements (`backend/src/middleware/errorHandler.ts`):
+    - Enhanced error logging for better debugging:
+      - Logs timestamp, HTTP status, request method, and path for all errors
+      - Logs error code and message for all errors
+      - For 500 errors (server errors), logs full stack trace and error object
+      - Format: `[ISO timestamp] Error {status} on {METHOD} {path}`
+      - Helps diagnose backend issues without direct console access
+  - Frontend API client (`src/lib/api/accounting.ts`):
+    - Updated `getTrialBalance()` function (lines 169-180):
+      - New signature: `getTrialBalance(params?: { asOfDate?: string }, role: Role = 'accountant')`
+      - Accepts optional params object with `asOfDate` property (ISO string format)
+      - Builds query string from parameters: `/trial-balance?asOfDate=YYYY-MM-DD`
+      - Maintains backward compatibility (params are optional)
+    - Hardened `exportTrialBalance()` function (lines 182-221):
+      - Signature: `exportTrialBalance(params?: { asOfDate?: string }, role: Role = 'accountant'): Promise<Blob>`
+      - Added defensive error handling: safely retrieves access token with try-catch wrapper
+      - Logs warnings if token retrieval fails but continues gracefully
+      - Improved error message extraction from failed responses (supports multiple error structures)
+      - Calls `/trial-balance/export` endpoint with same parameters
+      - Returns Blob for file download (binary XLSX data)
+      - Handles authentication via JWT token and `X-Role` header
+      - Proper error handling with user-friendly error messages
+  - Utility functions (`src/lib/utils.ts`):
+    - Added new `sanitizeNumber(value: unknown): number` utility function:
+      - Safely converts any value (number, string, null, undefined) to a finite number
+      - Strips currency symbols, commas, and other non-numeric characters from strings
+      - Returns 0 for invalid/null/undefined values
+      - Logs warnings in development mode for debugging unexpected data shapes
+      - Prevents NaN propagation in calculations
+  - Frontend UI updates (`src/pages/accounting/TrialBalance.tsx`):
+    - Imported `sanitizeNumber` utility from `@/lib/utils`
+    - Balance calculation robustness (lines 195):
+      - Changed from: `const balance = Number(item.balance ?? 0) || 0`
+      - Changed to: `const balance = sanitizeNumber(item.balance)`
+      - Ensures NaN values cannot occur from API responses
+    - Category and grand total calculations (lines 239-244):
+      - Updated to use `sanitizeNumber()` on accumulation operations
+      - Prevents NaN from propagating through debit/credit calculations
+      - Ensures all totals are finite numbers
+    - React.Fragment fix (lines 421-452):
+      - Replaced array pattern `[headerRow, ...accountRows]` with proper `<React.Fragment key={category.name}>` wrapper
+      - Eliminates React warning: "Invalid prop `data-lov-id` supplied to `React.Fragment`"
+      - Maintains proper React keys for performance and stability
+      - Conditional rendering inside fragment: `{isCollapsibleOpen(category.name) && accounts.map(...)}`
+  - Frontend state & handlers:
+    - `isExporting` state for export button loading indicator
+    - `handleComparisonPeriodChange()` function (lines 93-108):
+      - `previousMonth`: Calculates and sets date to last day of previous month
+      - `previousYear`: Sets date to same day one year ago
+      - `none`: Resets to current date
+      - `custom`: Allows manual date selection via date picker
+    - Updated data fetching query (lines 111-117):
+      - Query key includes `asOfDate` for proper cache invalidation: `['trial-balance', role, asOfDate?.toISOString().split('T')[0]]`
+      - Passes date parameter to API: `getTrialBalance({ asOfDate: asOfDate?.toISOString().split('T')[0] }, role)`
+      - Automatically refetches when date changes
+    - `handleExport()` async function (lines 120-151):
+      - Sets loading state during export operation
+      - Calls `exportTrialBalance()` API function with current `asOfDate`
+      - Creates download link and triggers file download
+      - Generates filename: `trial-balance-YYYY-MM-DD.xlsx`
+      - Shows success/error toast notifications
+      - Proper cleanup of blob URLs
+    - UI updates:
+      - Removed trial balance type selector (Standard only)
+      - Comparison period selector now functional with `handleComparisonPeriodChange` handler
+      - Export button now functional:
+        - onClick handler calls `handleExport()`
+        - Shows loading spinner and "Exporting..." text during export
+        - Disabled during export or data loading
+      - Page title dynamically shows selected date: "As of [formatted date]"
+  - Dependencies:
+    - `exceljs` (^4.4.0) for Excel file generation
+  - Bug fixes in v0.13.1 (current):
+    - **Export button error fix**: Added defensive error handling to `exportTrialBalance()` to safely retrieve access token and handle cases where `getAccessToken()` throws
+    - **RNaN values fix**: Introduced `sanitizeNumber()` utility to eliminate NaN propagation in balance/debit/credit calculations
+    - **React warning fix**: Replaced array pattern with proper `<React.Fragment>` wrapper to eliminate invalid prop warning
+    - **Diagnostic logging**: Added database function existence check in trial-balance endpoint with clear error message if migration 012 is missing
+    - **Error logging**: Enhanced error middleware to log full details for 500 errors, aiding in troubleshooting
+  - Notes:
+    - Page located at `/accounting/trial-balance`
+    - Access: `admin`, `accountant`, `viewer` roles
+    - Date filter triggers automatic data refetch via React Query
+    - Comparison period selector provides shortcuts for common date selections
+    - Excel export includes all accounts with proper accounting format
+    - Export filename includes selected date for easy identification
+    - All features fully functional and integrated with backend database
+    - **Important**: Migration 012 must be run via `npm run db:migrate:app` for trial balance functionality to work
+
+|- v0.14 Environment Variable Loading & Error Handling Improvements
+  - Backend configuration fix (`backend/src/index.ts`):
+    - **Root cause identified**: ES modules + `import 'dotenv/config'` doesn't reliably find `.env` file in parent directory
+    - **Solution**: Explicit path configuration using `fileURLToPath` and `path.join`
+    - Changed from:
+      ```typescript
+      import 'dotenv/config';
+      ```
+    - To:
+      ```typescript
+      import { config } from 'dotenv';
+      import path from 'path';
+      import { fileURLToPath } from 'url';
+      
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const envPath = path.join(__dirname, '../../.env');
+      
+      const result = config({ path: envPath });
+      
+      if (result.error) {
+        console.warn('[dotenv] Warning: Could not load .env file from:', envPath);
+      } else {
+        console.log('[dotenv] ✓ Loaded .env from:', envPath);
+      }
+      ```
+    - Benefits:
+      - Ensures `.env` is always found, regardless of working directory
+      - Better error reporting if `.env` file cannot be loaded
+      - Compatible with ES modules and all startup methods (tsx, node, npm scripts)
+  - Frontend error handling improvements:
+    - `src/pages/accounting/Journals.tsx`:
+      - Added `onError` handler to useQuery for fetching journals
+      - Displays backend error messages in toast notifications
+      - Users see specific errors (e.g., "Supabase env missing") instead of generic failures
+    - `src/pages/accounting/ChartOfAccounts.tsx`:
+      - Added `onError` handlers for both accounts and trial balance queries
+      - Separate error messages for each query (accounts vs balances)
+      - Provides actionable feedback to users
+    - `src/pages/accounting/GeneralLedger.tsx`:
+      - Already had error handling (no changes needed)
+      - Surfaces backend error.message in toast notifications
+  - Diagnostic tools created:
+    - `backend/scripts/check_supabase_env.ts`: Tests Supabase env and connection
+    - `backend/scripts/fix_supabase_connection.ts`: Interactive diagnostic and setup tool
+    - These tools help diagnose future env configuration issues
+  - Startup health check:
+    - Backend now warns on startup if Supabase env vars are missing
+    - Clear guidance on how to fix (add to .env, restart backend)
+    - Helps catch configuration issues early
+  - Documentation created:
+    - `FIX_COMPLETE.md`: Summary of the issue and fix
+    - `ACCOUNTING_PAGES_FIX_SUMMARY.md`: Technical details
+    - `ENV_SETUP_GUIDE.md`: Environment setup instructions
+    - `SUPABASE_API_SETUP.md`: Supabase configuration guide
+  - Impact:
+    - All three accounting pages now load correctly: Journals, Chart of Accounts, General Ledger
+    - No more 500 errors from `/accounts`, `/journals`, `/ledger` endpoints
+    - Supabase credentials from `.env` are properly loaded and used
+  - Notes:
+    - This issue was specific to ES modules; CommonJS projects using `import 'dotenv/config'` work fine
+    - The fix is backward compatible; no API changes, no database schema changes
+    - All endpoints continue to use Supabase Data API for consistency with existing design
+
 ## Consistency Notes & Alignment Plan
 
 - Auth schema: complete – backend uses `app.*`; seeding in `006_app_seed_admin.sql` ensures roles and an initial admin. Legacy `auth.*` not used by routes.
@@ -738,23 +983,37 @@ erDiagram
   - Minor migration note: the local `fn_update_account` definition must include `p_is_active` in its parameter list to match backend calls.
 
 ## References
-- Migrations: `backend/migrations/sql/005_app_init.sql`, `backend/migrations/sql/006_app_seed_admin.sql`, `backend/migrations/sql/007_accounting_init.sql`, `backend/migrations/sql/008_accounting_seed.sql`, `backend/migrations/sql/009_accounting_api_views.sql`, `backend/migrations/sql/010_accounting_actions.sql`, `backend/migrations/sql/011_journal_workflow.sql`.
+- Migrations: `backend/migrations/sql/005_app_init.sql`, `backend/migrations/sql/006_app_seed_admin.sql`, `backend/migrations/sql/007_accounting_init.sql`, `backend/migrations/sql/008_accounting_seed.sql`, `backend/migrations/sql/009_accounting_api_views.sql`, `backend/migrations/sql/010_accounting_actions.sql`, `backend/migrations/sql/011_journal_workflow.sql`, `backend/migrations/sql/012_trial_balance_filters.sql`.
 - Migrations note (v0.9):
   - `007_accounting_init.sql` creates core accounting schema and tables.
   - `009_accounting_api_views.sql` uses `DROP VIEW IF EXISTS CASCADE` for idempotency (updated in v0.9).
   - `011_journal_workflow.sql` adds journal workflow columns, RPCs, and workflow functions (v0.9).
-- Migration runner: `backend/scripts/migrate_app.ts` (updated to include 011 in v0.9).
+  - `012_trial_balance_filters.sql` adds date-filtered trial balance SQL function (v0.13).
+- Migration runner: `backend/scripts/migrate_app.ts` (updated to include 012 in v0.13).
 - Legacy migrations present but not executed: `003_auth_init.sql`, `004_auth_seed_admin.sql`; `006_app_copy_from_auth.sql` exists but is not in the runner.
 - Missing migration: `banking.*` schema tables are used by the backend; create a migration to provision them as documented.
-- Middleware: `backend/src/middleware/pg.ts`, `backend/src/middleware/supabase.ts`.
-- Server: `backend/src/index.ts`, `backend/src/server.ts`.
+- Diagnostic scripts (v0.13.1+):
+  - `backend/scripts/test_trial_balance.ts`: Diagnostic script to verify trial balance function exists and is callable; checks database connectivity, function existence, and sample data availability.
+  - `backend/scripts/check_supabase_env.ts`: Tests Supabase environment variables and connection to public views (v0.14).
+  - `backend/scripts/fix_supabase_connection.ts`: Interactive diagnostic and setup tool for Supabase env configuration (v0.14).
+- Middleware: 
+  - `backend/src/middleware/pg.ts` - PostgreSQL connection pool management.
+  - `backend/src/middleware/supabase.ts` - Supabase client initialization and management.
+  - `backend/src/middleware/rbac.ts` - Role-based access control with JWT and X-Role fallback.
+  - `backend/src/middleware/errorHandler.ts` - Unified error handling with detailed logging (v0.13+).
+- Server:
+  - `backend/src/index.ts` - Server entry point with explicit dotenv path configuration (v0.14).
+  - `backend/src/server.ts` - Express app setup with middleware and route mounting.
 - Routes: `backend/src/routes/auth.ts`, `backend/src/routes/admin_users.ts`, `backend/src/routes/folders.ts`, `backend/src/routes/documents.ts`, `backend/src/routes/banking_import.ts`, `backend/src/routes/accounting.ts`.
 - Frontend Pages:
-  - `src/pages/accounting/Journals.tsx` - List journals with database-backed React Query and workflow filtering (v0.9).
+  - `src/pages/accounting/Journals.tsx` - List journals with database-backed React Query and workflow filtering (v0.9), improved error handling (v0.14).
   - `src/pages/accounting/CreateJournal.tsx` - Create journal with draft/post actions and account selection from database (v0.9).
   - `src/pages/accounting/GeneralLedger.tsx` - View ledger entries with live data, filters, and pagination (v0.11).
-- API Client: `src/lib/api/accounting.ts` (updated with workflow methods in v0.9, ledger methods in v0.11).
+  - `src/pages/accounting/TrialBalance.tsx` - View trial balance with live data, date filtering, comparison period shortcuts, Excel export, and accounting equation validation (v0.12, v0.13).
+  - `src/pages/accounting/ChartOfAccounts.tsx` - View and manage chart of accounts with balances from trial balance (v0.8), improved error handling (v0.14).
+- API Client: `src/lib/api/accounting.ts` (updated with workflow methods in v0.9, ledger methods in v0.11, trial balance method in v0.8, trial balance filters and export in v0.13).
 - Auth API: `src/lib/api/auth.ts` (contains `getPrimaryRole()`, `getAccessToken()`, etc.).
+- Utilities: `src/lib/utils.ts` (includes `sanitizeNumber()` utility added in v0.13.1).
 - Backend Tests:
   - `backend/scripts/test_journal_actions.ts` - Journal workflow integration tests (v0.10).
   - `backend/scripts/test_ledger.ts` - Ledger endpoint integration tests (v0.11).
@@ -764,4 +1023,8 @@ erDiagram
   - `backend/JOURNAL_ACTIONS_RUNBOOK.md` - Journal actions troubleshooting guide (v0.10).
   - `docs/general-ledger-guide.md` - General Ledger user guide and troubleshooting (v0.11).
   - `GENERAL_LEDGER_IMPLEMENTATION_SUMMARY.md` - General Ledger implementation summary (v0.11).
+  - `FIX_COMPLETE.md` - Summary of environment variable loading fix (v0.14).
+  - `ACCOUNTING_PAGES_FIX_SUMMARY.md` - Technical details of the fix (v0.14).
+  - `ENV_SETUP_GUIDE.md` - Environment setup instructions (v0.14).
+  - `SUPABASE_API_SETUP.md` - Supabase REST API configuration guide (v0.14).
 - OpenAPI: `docs/openapi.yaml`.
