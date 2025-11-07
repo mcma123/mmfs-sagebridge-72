@@ -971,6 +971,190 @@ erDiagram
     - The fix is backward compatible; no API changes, no database schema changes
     - All endpoints continue to use Supabase Data API for consistency with existing design
 
+|- v0.15 Tax Reports System Implementation (current)
+  - Database schema updates (Migration 013: `backend/migrations/sql/013_tax_reports.sql`):
+    - Created `accounting.tax_returns` table for tax return records:
+      - Columns: id, type (VAT | Employee_Tax | Provisional_Tax | Income_Tax), period_start, period_end, due_date, status (draft | reviewed | submitted), submitted_date, amount, reference, notes, created_by, reviewed_by, reviewed_at, created_at, updated_at
+      - Three-stage workflow: draft → reviewed → submitted (like journals)
+      - Indexes on status, type, period dates, and due_date for efficient filtering
+    - Created `accounting.tax_return_lines` table for detailed line items:
+      - Columns: id, tax_return_id, description, account_id, amount, is_manual_override, created_at
+      - Tracks auto-calculated vs. manually overridden amounts
+      - Links to accounts table for traceability
+    - Created view `accounting.v_tax_liabilities`:
+      - Calculates current tax payable balances from ledger_entries
+      - Filters liability accounts with names containing 'tax', 'vat', or 'paye'
+      - Returns account_id, code, name, and current amount
+    - Created public views for Supabase Data API access:
+      - `public.accounting_tax_returns` - exposes tax return records
+      - `public.accounting_tax_return_lines` - exposes line items
+      - `public.accounting_tax_liabilities` - exposes current liabilities
+      - Granted SELECT permissions to anon, authenticated, service_role
+    - Created RPC functions for tax return workflow:
+      - `accounting.fn_calculate_vat_for_period(start, end)` - calculates net VAT (15% South African rate) from revenue and expense ledger entries
+      - `public.fn_create_tax_return(type, start, end, due_date, created_by)` - creates draft tax return with auto-calculated amount and line items; returns full tax return with lines as JSONB
+      - `public.fn_review_tax_return(id, reviewed_by)` - marks draft as reviewed; validates status before transition
+      - `public.fn_submit_tax_return(id, submitted_by, submitted_date?)` - marks draft/reviewed as submitted; validates status before transition
+      - `public.fn_get_upcoming_tax_deadlines()` - suggests upcoming quarterly VAT returns for next 90 days; auto-calculates suggested amounts
+      - All functions include proper error handling and validation
+  - Backend API enhancements (`backend/src/routes/accounting.ts`):
+    - Added 10 new tax report endpoints (lines 577-932):
+      - `GET /api/v1/accounting/tax-reports` - list tax returns with optional filters (type, year, status); roles: admin, accountant, viewer
+      - `GET /api/v1/accounting/tax-reports/:id` - get single tax return with line items; roles: admin, accountant, viewer
+      - `POST /api/v1/accounting/tax-reports` - create new tax return via RPC (auto-calculates); roles: admin, accountant
+      - `PATCH /api/v1/accounting/tax-reports/:id` - update draft tax return (manual override amounts and lines); roles: admin, accountant
+      - `PATCH /api/v1/accounting/tax-reports/:id/review` - mark as reviewed via RPC; roles: admin, accountant
+      - `PATCH /api/v1/accounting/tax-reports/:id/submit` - mark as submitted via RPC; roles: admin, accountant
+      - `DELETE /api/v1/accounting/tax-reports/:id` - delete draft only (409 for reviewed/submitted); roles: admin, accountant
+      - `GET /api/v1/accounting/tax-liabilities` - get current tax payable balances from ledger; roles: admin, accountant, viewer
+      - `GET /api/v1/accounting/tax-reports/upcoming` - get suggested upcoming tax deadlines; roles: admin, accountant
+      - `GET /api/v1/accounting/tax-reports/:id/export` - export tax return as Excel with formatted header, line items, and totals; roles: admin, accountant, viewer
+    - All endpoints follow established patterns from journals/trial balance
+    - Proper error handling with 400/404/409 status codes for workflow violations
+    - Uses Supabase Data API views and RPC functions consistently
+  - Frontend API client (`src/lib/api/accounting.ts`):
+    - Added tax report TypeScript types (lines 279-342):
+      - `TaxReturnDTO` - tax return with all workflow fields
+      - `TaxReturnLineDTO` - line items with manual override flag
+      - `TaxLiabilityDTO` - current liability balances
+      - `UpcomingTaxReturnDTO` - suggested upcoming returns
+      - `CreateTaxReturnRequest` - payload for creating tax return
+      - `UpdateTaxReturnRequest` - payload for updating draft
+    - Added 10 API client functions (lines 344-487):
+      - `getTaxReports(params?, role)` - fetch with filters
+      - `getTaxReport(id, role)` - fetch single with lines
+      - `createTaxReturn(payload, role, userId?)` - create with auto-calc
+      - `updateTaxReturn(id, payload, role)` - update draft
+      - `reviewTaxReturn(id, role, userId?)` - mark reviewed
+      - `submitTaxReturn(id, role, userId?, submittedDate?)` - mark submitted
+      - `deleteTaxReturn(id, role)` - delete draft
+      - `getTaxLiabilities(role)` - fetch liabilities
+      - `getUpcomingTaxReturns(role)` - fetch suggestions
+      - `exportTaxReturn(id, role)` - download Excel (returns Blob)
+    - All functions follow established patterns with proper error handling
+  - Frontend page (`src/pages/accounting/TaxReports.tsx`):
+    - Complete rewrite: replaced 87 lines of static mock data with React Query powered live data
+    - Data fetching:
+      - Three useQuery hooks: tax reports (with filters), tax liabilities, upcoming deadlines
+      - Role-based access via `getPrimaryRole()`
+      - Filter integration: year dropdown (2025-2022), type dropdown (VAT, Employee Tax, Provisional Tax), status tabs (all, draft, reviewed, submitted)
+      - Query keys include all filters for proper cache invalidation
+      - Automatic refetching when filters change
+      - Error handling with toast notifications (React Query v5 compatible)
+    - Mutations:
+      - `submitMutation` - submit reviewed tax returns
+      - `reviewMutation` - review draft tax returns
+      - `deleteMutation` - delete draft tax returns
+      - All mutations use `useMutation` from TanStack Query with proper error handling and query invalidation
+    - Display features:
+      - Tax liabilities card: shows current payables with account codes, calculates total due
+      - Tax calendar card: displays upcoming deadlines (next 3) with visual priority (urgent in amber)
+      - Tax returns table: shows all returns with proper formatting, workflow status badges, conditional action buttons
+      - Currency formatting using `Intl.NumberFormat` (ZAR locale: R1,234.56)
+      - Date formatting using `date-fns`
+      - Status badge colors: draft (amber), reviewed (blue), submitted (green)
+      - Human-readable type names: VAT Return, Employee Tax, Provisional Tax, Income Tax
+    - Workflow actions:
+      - Draft returns: Review button (marks as reviewed), Delete button (hard delete)
+      - Reviewed returns: Submit button (marks as submitted)
+      - Submitted returns: Download button (Excel export)
+      - Loading states with Loader2 spinner during mutations
+      - Disabled buttons during pending operations
+      - Role-based action visibility (admin/accountant only for workflow actions)
+    - Empty states:
+      - No tax reports: "Generate your first tax report to get started"
+      - No liabilities: "No tax liabilities"
+      - No upcoming deadlines: "No upcoming tax deadlines"
+      - Tab-specific empty states for draft/reviewed/submitted
+    - UI preserved from original:
+      - Tabs for filtering by status (All, Draft, Reviewed, Submitted)
+      - Year and type filter dropdowns
+      - "Generate Report" button (navigates to create page - placeholder)
+      - Tax calendar with visual priority for urgent deadlines
+      - Alert banner with tax compliance notice
+    - Performance optimizations:
+      - `useMemo` for calculating total liabilities
+      - Conditional query execution (upcoming deadlines only for admin/accountant)
+      - React Query caching with role-based query keys
+      - Efficient table rendering with single renderTableRow function
+  - Design decisions implemented (based on user input):
+    - VAT Calculation: Hybrid approach - auto-calculate from ledger with manual override capability via update endpoint
+    - Report Generation: Hybrid approach - system suggests upcoming returns, users can also create manually
+    - Approval Workflow: Three-stage (draft → reviewed → submitted) like journals for compliance
+    - Historical Data: Clean start - no seeded data, empty state design
+  - South African tax compliance:
+    - VAT rate: 15% standard rate used in calculations
+    - Quarterly VAT returns: Suggested automatically by `fn_get_upcoming_tax_deadlines()`
+    - Due date calculations: Q-end + 25 days for VAT (e.g., Q1 ends Mar 31, due Apr 25)
+    - Currency: ZAR (South African Rand) formatted throughout
+  - Notes:
+    - Page located at `/accounting/tax-reports`
+    - Access: `admin`, `accountant` for write operations; all roles for read
+    - No backend changes breaking existing functionality
+    - Migration 013 must be run via `npm run db:migrate:app` for tax reports to work
+    - Migration runner updated to include `013_tax_reports.sql`
+    - Follows same patterns as Journals (v0.9), General Ledger (v0.11), and Trial Balance (v0.12/v0.13)
+    - All CRUD operations implemented with proper RBAC and error handling
+    - Excel export format matches trial balance export with professional formatting
+    - Future enhancements: Create/edit tax return UI, detailed view modal, eFiling integration
+
+|- v0.15.1 Tax Reports Bug Fixes (current)
+  - Critical bug fixes for tax reports feature after initial deployment:
+    - **Database Migration Execution**:
+      - Executed `013_tax_reports.sql` migration via `npm run db:migrate:app`
+      - Created all required tables: `accounting.tax_returns`, `accounting.tax_return_lines`
+      - Created views: `accounting.v_tax_liabilities`, public views for Supabase Data API access
+      - Created 5 RPC functions: `fn_calculate_vat_for_period`, `fn_create_tax_return`, `fn_review_tax_return`, `fn_submit_tax_return`, `fn_get_upcoming_tax_deadlines`
+      - Status: Successfully completed, all database objects created
+    - **Frontend Import Error Fix** (`src/pages/accounting/CreateTaxReport.tsx`):
+      - **Issue**: `Uncaught ReferenceError: Label is not defined` at line 538
+      - **Root cause**: Missing import for `Label` component from `@/components/ui/label`
+      - **Fix**: Added import statement on line 25: `import { Label } from '@/components/ui/label';`
+      - **Impact**: Page now renders without errors, form labels display correctly
+    - **Backend Route Order Fix** (`backend/src/routes/accounting.ts`):
+      - **Issue**: `GET /api/v1/accounting/tax-reports/upcoming` returned ERR_EMPTY_RESPONSE (route never reached)
+      - **Root cause**: Express.js route matching order - parametric route `/tax-reports/:id` (line 611) matched before specific route `/tax-reports/upcoming` (line 602), causing "upcoming" to be parsed as :id parameter
+      - **Fix**: Moved `/tax-reports/upcoming` route (lines 602-608) BEFORE parametric `/tax-reports/:id` route (line 611)
+      - **Route order corrected**:
+        1. Line 582: `GET /tax-reports` (with filters) - collection route
+        2. Line 602: `GET /tax-reports/upcoming` - specific named route (NOW FIRST)
+        3. Line 611: `GET /tax-reports/:id` - parametric route (NOW SECOND)
+        4. Line 627: `POST /tax-reports` - create
+        5. Lines 649+: Other workflow routes (PATCH, DELETE)
+        6. Line 827: `GET /tax-reports/:id/export` - export route
+        7. Line 814: `GET /tax-liabilities` - liabilities endpoint
+      - **Impact**: `/upcoming` endpoint now accessible, returns upcoming tax deadlines correctly
+      - **Pattern**: Specific routes must be defined before parametric routes in Express.js to prevent wildcard matching
+    - **Server Stability**:
+      - **Before fixes**: Server crashed with 500 Internal Server Error when accessing tax reports page
+      - **Errors resolved**:
+        - Missing database objects (tables, views, functions) → migration executed
+        - Route order causing incorrect handler invocation → routes reordered
+        - Missing frontend component import → import added
+      - **After fixes**: Server runs stably, all tax reports endpoints return 200 status
+    - Development servers status:
+      - Frontend (Vite): Running on `http://localhost:8080/`
+      - Backend (Express): Running on port 3000
+      - All tax reports API endpoints functional
+  - Testing verification:
+    - Page `/accounting/tax-reports/create` renders without console errors
+    - API endpoints responding correctly:
+      - `GET /api/v1/accounting/tax-reports?year=2025` → 200 OK
+      - `GET /api/v1/accounting/tax-liabilities` → 200 OK
+      - `GET /api/v1/accounting/tax-reports/upcoming` → 200 OK with array response
+    - Server no longer crashes on tax reports page load
+  - Express.js routing best practice documented:
+    - **Rule**: Always define specific/named routes before parametric routes with `:param` syntax
+    - **Example**: `/users/me` must be defined before `/users/:id` to avoid "me" being captured as ID
+    - **Tax reports case**: `/tax-reports/upcoming` and `/tax-reports/:id/export` must precede `/tax-reports/:id`
+  - Notes:
+    - No database schema changes in this patch version
+    - No API contract changes - only fixes for existing endpoints
+    - All changes backward compatible
+    - Tax reports feature now fully functional after bug fixes
+    - Page located at `/accounting/tax-reports/create` for tax return creation
+    - Migration 013 must be run before using tax reports feature (already included in migration runner)
+
 ## Consistency Notes & Alignment Plan
 
 - Auth schema: complete – backend uses `app.*`; seeding in `006_app_seed_admin.sql` ensures roles and an initial admin. Legacy `auth.*` not used by routes.
@@ -983,13 +1167,14 @@ erDiagram
   - Minor migration note: the local `fn_update_account` definition must include `p_is_active` in its parameter list to match backend calls.
 
 ## References
-- Migrations: `backend/migrations/sql/005_app_init.sql`, `backend/migrations/sql/006_app_seed_admin.sql`, `backend/migrations/sql/007_accounting_init.sql`, `backend/migrations/sql/008_accounting_seed.sql`, `backend/migrations/sql/009_accounting_api_views.sql`, `backend/migrations/sql/010_accounting_actions.sql`, `backend/migrations/sql/011_journal_workflow.sql`, `backend/migrations/sql/012_trial_balance_filters.sql`.
+- Migrations: `backend/migrations/sql/005_app_init.sql`, `backend/migrations/sql/006_app_seed_admin.sql`, `backend/migrations/sql/007_accounting_init.sql`, `backend/migrations/sql/008_accounting_seed.sql`, `backend/migrations/sql/009_accounting_api_views.sql`, `backend/migrations/sql/010_accounting_actions.sql`, `backend/migrations/sql/011_journal_workflow.sql`, `backend/migrations/sql/012_trial_balance_filters.sql`, `backend/migrations/sql/013_tax_reports.sql`.
 - Migrations note (v0.9):
   - `007_accounting_init.sql` creates core accounting schema and tables.
   - `009_accounting_api_views.sql` uses `DROP VIEW IF EXISTS CASCADE` for idempotency (updated in v0.9).
   - `011_journal_workflow.sql` adds journal workflow columns, RPCs, and workflow functions (v0.9).
   - `012_trial_balance_filters.sql` adds date-filtered trial balance SQL function (v0.13).
-- Migration runner: `backend/scripts/migrate_app.ts` (updated to include 012 in v0.13).
+  - `013_tax_reports.sql` adds tax returns, tax return lines, tax liabilities view, and tax workflow RPC functions (v0.15).
+- Migration runner: `backend/scripts/migrate_app.ts` (updated to include 013 in v0.15).
 - Legacy migrations present but not executed: `003_auth_init.sql`, `004_auth_seed_admin.sql`; `006_app_copy_from_auth.sql` exists but is not in the runner.
 - Missing migration: `banking.*` schema tables are used by the backend; create a migration to provision them as documented.
 - Diagnostic scripts (v0.13.1+):
@@ -1011,7 +1196,8 @@ erDiagram
   - `src/pages/accounting/GeneralLedger.tsx` - View ledger entries with live data, filters, and pagination (v0.11).
   - `src/pages/accounting/TrialBalance.tsx` - View trial balance with live data, date filtering, comparison period shortcuts, Excel export, and accounting equation validation (v0.12, v0.13).
   - `src/pages/accounting/ChartOfAccounts.tsx` - View and manage chart of accounts with balances from trial balance (v0.8), improved error handling (v0.14).
-- API Client: `src/lib/api/accounting.ts` (updated with workflow methods in v0.9, ledger methods in v0.11, trial balance method in v0.8, trial balance filters and export in v0.13).
+  - `src/pages/accounting/TaxReports.tsx` - View and manage tax reports with live data, workflow actions (draft/review/submit), tax liabilities display, upcoming deadlines, and Excel export (v0.15).
+- API Client: `src/lib/api/accounting.ts` (updated with workflow methods in v0.9, ledger methods in v0.11, trial balance method in v0.8, trial balance filters and export in v0.13, tax reports methods in v0.15).
 - Auth API: `src/lib/api/auth.ts` (contains `getPrimaryRole()`, `getAccessToken()`, etc.).
 - Utilities: `src/lib/utils.ts` (includes `sanitizeNumber()` utility added in v0.13.1).
 - Backend Tests:

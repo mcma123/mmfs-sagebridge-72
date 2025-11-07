@@ -574,4 +574,360 @@ router.get('/trial-balance/export', authorize(['admin','accountant','viewer']), 
   } catch (err) { next(err); }
 });
 
+// ============================================================================
+// TAX REPORTS
+// ============================================================================
+
+// Get all tax returns with optional filters
+router.get('/tax-reports', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const { type, year, status } = req.query as any;
+    let q = req.db.from('accounting_tax_returns').select('*');
+
+    if (type) q = q.eq('type', type);
+    if (status) q = q.eq('status', status);
+    if (year) {
+      // Filter by year in period_start
+      q = q.gte('period_start', `${year}-01-01`).lte('period_start', `${year}-12-31`);
+    }
+
+    q = q.order('due_date', { ascending: false }).order('id', { ascending: false });
+    const { data, error } = await q;
+    if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
+    res.json({ items: data || [] });
+  } catch (err) { next(err); }
+});
+
+// Get upcoming tax deadlines (suggestions for next 90 days)
+router.get('/tax-reports/upcoming', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { data, error } = await req.db.rpc('fn_get_upcoming_tax_deadlines');
+    if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
+    res.json({ items: data || [] });
+  } catch (err) { next(err); }
+});
+
+// Get single tax return with line items
+router.get('/tax-reports/:id', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const taxReturn = await req.db
+      .from('accounting_tax_returns')
+      .select('*')
+      .eq('id', Number(id))
+      .limit(1)
+      .single();
+    if (taxReturn.error || !taxReturn.data) {
+      throw { status: 404, code: 'NOT_FOUND', message: 'tax return not found' };
+    }
+
+    const lines = await req.db
+      .from('accounting_tax_return_lines')
+      .select('*')
+      .eq('tax_return_id', Number(id))
+      .order('id', { ascending: true });
+    if (lines.error) throw { status: 500, code: 'DB_ERROR', message: lines.error.message };
+
+    res.json({ taxReturn: taxReturn.data, lines: lines.data || [] });
+  } catch (err) { next(err); }
+});
+
+// Create new tax return (calls RPC to auto-calculate)
+router.post('/tax-reports', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { type, period_start, period_end, due_date } = req.body || {};
+    if (!type || !period_start || !period_end || !due_date) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'type, period_start, period_end, and due_date required' };
+    }
+
+    const createdBy = Number(req.headers['x-user-id']) || null;
+    const { data, error } = await req.db.rpc('fn_create_tax_return', {
+      p_type: type,
+      p_period_start: period_start,
+      p_period_end: period_end,
+      p_due_date: due_date,
+      p_created_by: createdBy
+    });
+
+    if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
+    res.status(201).json(data);
+  } catch (err) { next(err); }
+});
+
+// Update tax return (manual override amounts)
+router.patch('/tax-reports/:id', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const { amount, reference, notes, lines } = req.body || {};
+
+    // Check if tax return is in draft status
+    const existing = await req.db
+      .from('accounting_tax_returns')
+      .select('status')
+      .eq('id', Number(id))
+      .limit(1)
+      .single();
+
+    if (existing.error || !existing.data) {
+      throw { status: 404, code: 'NOT_FOUND', message: 'tax return not found' };
+    }
+
+    if (existing.data.status !== 'draft') {
+      throw { status: 400, code: 'INVALID_STATUS', message: 'Can only update draft tax returns' };
+    }
+
+    // Update main tax return
+    const updates: any = { updated_at: new Date().toISOString() };
+    if (amount !== undefined) updates.amount = amount;
+    if (reference !== undefined) updates.reference = reference;
+    if (notes !== undefined) updates.notes = notes;
+
+    const { error: updateError } = await req.db
+      .from('accounting_tax_returns')
+      .update(updates)
+      .eq('id', Number(id));
+
+    if (updateError) throw { status: 500, code: 'DB_ERROR', message: updateError.message };
+
+    // Update lines if provided
+    if (Array.isArray(lines) && lines.length > 0) {
+      // Delete existing lines
+      await req.db
+        .from('accounting_tax_return_lines')
+        .delete()
+        .eq('tax_return_id', Number(id));
+
+      // Insert new lines
+      for (const line of lines) {
+        await req.db
+          .from('accounting_tax_return_lines')
+          .insert({
+            tax_return_id: Number(id),
+            description: line.description,
+            account_id: line.account_id || null,
+            amount: line.amount,
+            is_manual_override: true
+          });
+      }
+    }
+
+    // Return updated tax return
+    const updated = await req.db
+      .from('accounting_tax_returns')
+      .select('*')
+      .eq('id', Number(id))
+      .limit(1)
+      .single();
+
+    res.json(updated.data);
+  } catch (err) { next(err); }
+});
+
+// Review tax return (draft -> reviewed)
+router.patch('/tax-reports/:id/review', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const reviewedBy = Number(req.headers['x-user-id']) || null;
+
+    const { error } = await req.db.rpc('fn_review_tax_return', {
+      p_tax_return_id: Number(id),
+      p_reviewed_by: reviewedBy
+    });
+
+    if (error) {
+      // Map known DB errors to 400
+      if (error.message && (error.message.includes('not found') || error.message.includes('not in draft'))) {
+        throw { status: 400, code: 'INVALID_STATUS', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
+
+    res.status(200).json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Submit tax return (draft/reviewed -> submitted)
+router.patch('/tax-reports/:id/submit', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const { submitted_date } = req.body || {};
+    const submittedBy = Number(req.headers['x-user-id']) || null;
+
+    const { error } = await req.db.rpc('fn_submit_tax_return', {
+      p_tax_return_id: Number(id),
+      p_submitted_by: submittedBy,
+      p_submitted_date: submitted_date || null
+    });
+
+    if (error) {
+      // Map known DB errors to 400
+      if (error.message && (error.message.includes('not found') || error.message.includes('already submitted'))) {
+        throw { status: 400, code: 'INVALID_STATUS', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
+
+    res.status(200).json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Delete tax return (draft only)
+router.delete('/tax-reports/:id', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+
+    // Check status
+    const existing = await req.db
+      .from('accounting_tax_returns')
+      .select('status')
+      .eq('id', Number(id))
+      .limit(1)
+      .single();
+
+    if (existing.error || !existing.data) {
+      throw { status: 404, code: 'NOT_FOUND', message: 'tax return not found' };
+    }
+
+    if (existing.data.status !== 'draft') {
+      throw { status: 409, code: 'CANNOT_DELETE', message: 'Can only delete draft tax returns. Reviewed or submitted returns cannot be deleted.' };
+    }
+
+    // Delete lines first (cascade should handle this, but being explicit)
+    await req.db
+      .from('accounting_tax_return_lines')
+      .delete()
+      .eq('tax_return_id', Number(id));
+
+    // Delete tax return
+    const { error } = await req.db
+      .from('accounting_tax_returns')
+      .delete()
+      .eq('id', Number(id));
+
+    if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
+
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// Get current tax liabilities from ledger
+router.get('/tax-liabilities', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const { data, error } = await req.db
+      .from('accounting_tax_liabilities')
+      .select('*')
+      .order('code', { ascending: true });
+
+    if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
+    res.json({ items: data || [] });
+  } catch (err) { next(err); }
+});
+
+// Export tax return as Excel (similar to trial balance export)
+router.get('/tax-reports/:id/export', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+
+    // Fetch tax return
+    const taxReturn = await req.db
+      .from('accounting_tax_returns')
+      .select('*')
+      .eq('id', Number(id))
+      .limit(1)
+      .single();
+
+    if (taxReturn.error || !taxReturn.data) {
+      throw { status: 404, code: 'NOT_FOUND', message: 'tax return not found' };
+    }
+
+    // Fetch lines
+    const lines = await req.db
+      .from('accounting_tax_return_lines')
+      .select('*')
+      .eq('tax_return_id', Number(id))
+      .order('id', { ascending: true });
+
+    if (lines.error) throw { status: 500, code: 'DB_ERROR', message: lines.error.message };
+
+    const tr = taxReturn.data;
+    const lineItems = lines.data || [];
+
+    // Create Excel workbook
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Tax Return');
+
+    // Add header info
+    worksheet.mergeCells('A1:D1');
+    worksheet.getCell('A1').value = `Tax Return - ${tr.type}`;
+    worksheet.getCell('A1').font = { bold: true, size: 16 };
+    worksheet.getCell('A1').alignment = { horizontal: 'center' };
+
+    worksheet.mergeCells('A2:D2');
+    worksheet.getCell('A2').value = `Period: ${tr.period_start} to ${tr.period_end}`;
+    worksheet.getCell('A2').alignment = { horizontal: 'center' };
+
+    worksheet.mergeCells('A3:D3');
+    worksheet.getCell('A3').value = `Due Date: ${tr.due_date}`;
+    worksheet.getCell('A3').alignment = { horizontal: 'center' };
+
+    worksheet.mergeCells('A4:D4');
+    worksheet.getCell('A4').value = `Status: ${tr.status.toUpperCase()}`;
+    worksheet.getCell('A4').alignment = { horizontal: 'center' };
+
+    // Empty row
+    worksheet.addRow([]);
+
+    // Column headers
+    const headerRow = worksheet.addRow(['Description', 'Account Code', 'Amount', 'Override']);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' }
+    };
+
+    // Set column widths
+    worksheet.columns = [
+      { key: 'description', width: 40 },
+      { key: 'account_code', width: 15 },
+      { key: 'amount', width: 18 },
+      { key: 'override', width: 12 }
+    ];
+
+    // Add line items
+    for (const line of lineItems) {
+      const row = worksheet.addRow([
+        line.description,
+        line.account_id || '-',
+        line.amount,
+        line.is_manual_override ? 'Yes' : 'No'
+      ]);
+
+      // Format amount column
+      row.getCell(3).numFmt = 'R#,##0.00';
+    }
+
+    // Total row
+    const totalRow = worksheet.addRow(['', '', tr.amount, '']);
+    totalRow.font = { bold: true };
+    totalRow.getCell(2).value = 'TOTAL:';
+    totalRow.getCell(2).alignment = { horizontal: 'right' };
+    totalRow.getCell(3).numFmt = 'R#,##0.00';
+    totalRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD3D3D3' }
+    };
+
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    // Set headers for file download
+    const filename = `tax-return-${tr.type}-${tr.period_start}-${tr.period_end}.xlsx`.toLowerCase().replace(/_/g, '-');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (err) { next(err); }
+});
+
 export default router;

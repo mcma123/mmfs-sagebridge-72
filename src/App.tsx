@@ -50,6 +50,8 @@ import EditAccount from './pages/accounting/EditAccount';
 import Reconciliation from './pages/accounting/Reconciliation';
 import AdjustOpeningBalance from './pages/accounting/AdjustOpeningBalance';
 import TaxReports from './pages/accounting/TaxReports';
+import CreateTaxReport from './pages/accounting/CreateTaxReport';
+import TaxReportDetail from './pages/accounting/TaxReportDetail';
 import PeriodEnd from './pages/accounting/PeriodEnd';
 import AccountingDocuments from './pages/accounting/Documents';
 import RoleGuard from '@/components/RoleGuard';
@@ -97,6 +99,8 @@ const App = () => (
               <Route path="/accounting/account/:id/edit" element={<EditAccount />} />
               <Route path="/accounting/reconciliation" element={<Reconciliation />} />
               <Route path="/accounting/adjust-opening-balance" element={<AdjustOpeningBalance />} />
+              <Route path="/accounting/tax-reports/create" element={<CreateTaxReport />} />
+              <Route path="/accounting/tax-reports/:id" element={<TaxReportDetail />} />
               <Route path="/accounting/tax-reports" element={<TaxReports />} />
               <Route path="/accounting/period-end" element={<PeriodEnd />} />
               <Route path="/accounting/documents" element={<AccountingDocuments />} />
