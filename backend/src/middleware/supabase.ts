@@ -1,46 +1,57 @@
 import type { Request, Response, NextFunction } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Create a single client instance to reuse across requests
+// Single client instance reused across requests
 let supabase: SupabaseClient | null = null;
-function getClient(): SupabaseClient {
-  // Read env at call time to ensure dotenv-loaded values are visible
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY;
 
-  if (!url || !key) {
-    console.warn('[backend] Supabase env missing', {
-      urlCandidate: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
-      hasServiceRole: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      hasAnon: !!process.env.SUPABASE_ANON_KEY,
-      hasViteAnon: !!process.env.VITE_SUPABASE_ANON_KEY,
-    });
-    throw Object.assign(new Error('Supabase env missing'), { status: 500, code: 'SUPABASE_ENV_MISSING' });
-  }
-  if (!supabase) {
-    supabase = createClient(url, key, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-  }
+function getClient(url: string, key: string): SupabaseClient {
+  if (supabase) return supabase;
+  supabase = createClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
   return supabase;
 }
 
 export function supabaseMiddleware(req: Request, _res: Response, next: NextFunction) {
   try {
-    // Attach client and simple helpers to the request
-    const client = getClient();
+    // Decide up front if we have env; avoid throwing to keep PG-backed routes working
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const key =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!url || !key) {
+      console.warn('[backend] Supabase env missing; continuing without Supabase client', {
+        urlCandidate: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+        hasServiceRole: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        hasAnon: !!process.env.SUPABASE_ANON_KEY,
+        hasViteAnon: !!process.env.VITE_SUPABASE_ANON_KEY,
+      });
+      (req as any).supabaseAvailable = false;
+      (req as any).supabase = undefined;
+      (req as any).db = undefined;
+      (req as any).storage = undefined;
+      return next();
+    }
+
+    const client = getClient(url, key);
+    (req as any).supabaseAvailable = true;
     (req as any).supabase = client;
-    (req as any).db = client; // alias
+    (req as any).db = client; // alias for convenience
     (req as any).storage = client.storage;
-    next();
+    return next();
   } catch (err) {
-    next(err);
+    console.error('[backend] Supabase middleware error:', err);
+    // Graceful degradation: proceed without Supabase so PG-backed endpoints still function
+    (req as any).supabaseAvailable = false;
+    (req as any).supabase = undefined;
+    (req as any).db = undefined;
+    (req as any).storage = undefined;
+    return next();
   }
 }
 
@@ -51,6 +62,7 @@ declare global {
       supabase?: SupabaseClient;
       db?: SupabaseClient;
       storage?: SupabaseClient['storage'];
+      supabaseAvailable?: boolean;
     }
   }
 }

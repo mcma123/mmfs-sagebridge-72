@@ -7,9 +7,20 @@ let pool: Pool | null = null;
 function getPool(): Pool {
   if (pool) return pool;
 
-  const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '';
+  // Prefer SUPABASE_DB_URL over DATABASE_URL to align with deployment configuration
+  const connectionString = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || '';
 
-  // (debug removed)
+  // Basic debug to know which source is in use (no secrets logged)
+  try {
+    const src = process.env.SUPABASE_DB_URL
+      ? 'SUPABASE_DB_URL'
+      : process.env.DATABASE_URL
+      ? 'DATABASE_URL'
+      : 'DISCRETE_VARS';
+    console.log(`[pg] Using ${src} for Postgres connection`);
+  } catch (_) {
+    // ignore logging errors
+  }
 
   // Determine SSL config (Supabase requires SSL; local dev usually not)
   const sslRequired =
