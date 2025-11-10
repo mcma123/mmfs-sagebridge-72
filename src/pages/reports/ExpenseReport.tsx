@@ -49,7 +49,7 @@ export default function ExpenseReport() {
   const today = new Date();
   const [dateRange, setDateRange] = useState<DateRange>({
     from: startOfMonth(today),
-    to: endOfMonth(today),
+    to: today,
   });
   const [showComparison, setShowComparison] = useState(true);
   const [isExporting, setIsExporting] = useState(false);

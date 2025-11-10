@@ -99,10 +99,10 @@ export default function TaxSummary() {
     if (!currentReports || !liabilities) return null;
 
     return generateTaxSummary(
-      currentReports,
-      liabilities,
+      currentReports.items || [],
+      liabilities.items || [],
       selectedYear,
-      showComparison ? comparisonReports : undefined,
+      showComparison ? (comparisonReports?.items || []) : undefined,
       comparisonYear
     );
   }, [currentReports, comparisonReports, liabilities, selectedYear, showComparison, comparisonYear]);
