@@ -7,11 +7,25 @@ const router = express.Router();
 // Ensure Supabase-backed routes fail gracefully when Supabase is unavailable
 const requireSupabase = (req: any, res: any, next: any) => {
   if (!(req as any).db) {
-    return res.status(500).json({
+    console.error('[accounting] ✗ Supabase client not available on request', {
+      path: req.path,
+      method: req.method,
+      supabaseAvailable: req.supabaseAvailable,
+      hasDb: !!req.db,
+      hasSupabase: !!req.supabase,
+      hasPg: !!req.pg,
+    });
+
+    return res.status(503).json({
       error: {
-        code: 'SUPABASE_ENV_MISSING',
+        code: 'SUPABASE_UNAVAILABLE',
         message:
-          'Supabase environment variables are missing or invalid. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or anon key) in .env and ensure Supabase REST exposes the "public" schema.',
+          'Supabase client is not available. This may be due to missing environment variables or connection issues. ' +
+          'Please check backend logs for details. Required: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or anon key) in .env.',
+        details: {
+          supabaseAvailable: req.supabaseAvailable ?? false,
+          timestamp: new Date().toISOString(),
+        },
       },
     });
   }
@@ -944,13 +958,62 @@ router.get('/tax-reports/:id/export', authorize(['admin','accountant','viewer'])
   } catch (err) { next(err); }
 });
 
-// Health check endpoint (Phase 2 diagnostics)
+// Health check endpoint (comprehensive diagnostics)
 router.get('/health', authorize(['admin','accountant','viewer']), async (req: any, res: any) => {
   try {
-    const supabaseAvailable = !!(req as any).db;
+    const health: any = {
+      timestamp: new Date().toISOString(),
+      overall: 'unknown',
+      checks: {},
+    };
 
-    // Check existence of accounting.fn_trial_balance_asof
-    let trialBalanceFnExists = false;
+    // Check 1: Environment Variables
+    health.checks.environment = {
+      status: 'checking',
+      SUPABASE_URL: !!process.env.SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      SUPABASE_ANON_KEY: !!process.env.SUPABASE_ANON_KEY,
+      DATABASE_URL: !!process.env.DATABASE_URL,
+      PGHOST: !!process.env.PGHOST,
+    };
+
+    const envOk = (health.checks.environment.SUPABASE_URL &&
+                   (health.checks.environment.SUPABASE_SERVICE_ROLE_KEY || health.checks.environment.SUPABASE_ANON_KEY));
+    health.checks.environment.status = envOk ? 'healthy' : 'unhealthy';
+
+    // Check 2: PostgreSQL Connection
+    health.checks.postgresql = { status: 'checking' };
+    try {
+      if (!req.pg) {
+        health.checks.postgresql.status = 'unavailable';
+        health.checks.postgresql.error = 'req.pg is undefined';
+      } else {
+        const pgResult = await req.pg.query('SELECT NOW() as now, current_database() as db');
+        health.checks.postgresql.status = 'healthy';
+        health.checks.postgresql.database = pgResult.rows[0]?.db;
+        health.checks.postgresql.serverTime = pgResult.rows[0]?.now;
+      }
+    } catch (err: any) {
+      health.checks.postgresql.status = 'unhealthy';
+      health.checks.postgresql.error = err?.message || String(err);
+    }
+
+    // Check 3: Supabase Client
+    health.checks.supabase = {
+      status: 'checking',
+      available: !!(req as any).db,
+      supabaseAvailable: req.supabaseAvailable,
+    };
+
+    if ((req as any).db) {
+      health.checks.supabase.status = 'healthy';
+    } else {
+      health.checks.supabase.status = 'unavailable';
+      health.checks.supabase.message = 'Supabase client not initialized on request object';
+    }
+
+    // Check 4: Database Schema - Trial Balance Function
+    health.checks.trialBalanceFunction = { status: 'checking' };
     try {
       const check = await req.pg.query(`
         SELECT EXISTS (
@@ -959,41 +1022,114 @@ router.get('/health', authorize(['admin','accountant','viewer']), async (req: an
           WHERE n.nspname = 'accounting' AND p.proname = 'fn_trial_balance_asof'
         ) as exists
       `);
-      trialBalanceFnExists = !!check.rows?.[0]?.exists;
-    } catch (_e) {
-      trialBalanceFnExists = false;
-    }
-
-    // Test public views exposure via Supabase (accounts view)
-    let publicViewsOk: boolean | null = null;
-    let publicViewsError: string | null = null;
-    if (supabaseAvailable) {
-      try {
-        const { error } = await (req as any).db
-          .from('accounting_accounts')
-          .select('id')
-          .limit(1);
-        if (error) {
-          publicViewsOk = false;
-          publicViewsError = error.message || String(error);
-        } else {
-          publicViewsOk = true;
-        }
-      } catch (err: any) {
-        publicViewsOk = false;
-        publicViewsError = err?.message || String(err);
+      const exists = !!check.rows?.[0]?.exists;
+      health.checks.trialBalanceFunction.exists = exists;
+      health.checks.trialBalanceFunction.status = exists ? 'healthy' : 'missing';
+      if (!exists) {
+        health.checks.trialBalanceFunction.recommendation = 'Run migration: 012_trial_balance_filters.sql';
       }
+    } catch (err: any) {
+      health.checks.trialBalanceFunction.status = 'error';
+      health.checks.trialBalanceFunction.error = err?.message || String(err);
     }
 
-    res.json({
-      supabaseAvailable,
-      trialBalanceFnExists,
-      publicViewsOk,
-      publicViewsError,
-    });
+    // Check 5: Public Views Accessibility
+    health.checks.publicViews = { status: 'checking', views: {} };
+
+    if ((req as any).db) {
+      const viewsToCheck = [
+        'accounting_accounts',
+        'accounting_entities',
+        'accounting_ledger_entries',
+        'accounting_trial_balance',
+        'accounting_tax_returns',
+        'accounting_tax_liabilities',
+      ];
+
+      for (const viewName of viewsToCheck) {
+        try {
+          const { error } = await (req as any).db
+            .from(viewName)
+            .select('*')
+            .limit(1);
+
+          if (error) {
+            health.checks.publicViews.views[viewName] = {
+              accessible: false,
+              error: error.message || String(error),
+            };
+          } else {
+            health.checks.publicViews.views[viewName] = { accessible: true };
+          }
+        } catch (err: any) {
+          health.checks.publicViews.views[viewName] = {
+            accessible: false,
+            error: err?.message || String(err),
+          };
+        }
+      }
+
+      const allViewsAccessible = Object.values(health.checks.publicViews.views)
+        .every((v: any) => v.accessible);
+
+      health.checks.publicViews.status = allViewsAccessible ? 'healthy' : 'partial';
+
+      if (!allViewsAccessible) {
+        health.checks.publicViews.recommendation =
+          'Run migration: 009_accounting_api_views.sql and ensure "public" schema is exposed in Supabase project settings';
+      }
+    } else {
+      health.checks.publicViews.status = 'skipped';
+      health.checks.publicViews.reason = 'Supabase client not available';
+    }
+
+    // Overall status determination
+    const criticalChecks = [
+      health.checks.postgresql.status === 'healthy',
+      health.checks.environment.status === 'healthy',
+    ];
+
+    const importantChecks = [
+      health.checks.supabase.status === 'healthy',
+      health.checks.publicViews.status === 'healthy' || health.checks.publicViews.status === 'skipped',
+      health.checks.trialBalanceFunction.status === 'healthy',
+    ];
+
+    if (criticalChecks.every(Boolean) && importantChecks.every(Boolean)) {
+      health.overall = 'healthy';
+    } else if (criticalChecks.every(Boolean)) {
+      health.overall = 'degraded';
+    } else {
+      health.overall = 'unhealthy';
+    }
+
+    // Add recommendations
+    health.recommendations = [];
+
+    if (health.checks.environment.status !== 'healthy') {
+      health.recommendations.push('Configure Supabase environment variables in .env file');
+    }
+
+    if (health.checks.supabase.status !== 'healthy') {
+      health.recommendations.push('Check backend startup logs for Supabase client initialization errors');
+    }
+
+    if (health.checks.trialBalanceFunction.status !== 'healthy') {
+      health.recommendations.push('Run database migrations: npm run db:migrate:app');
+    }
+
+    if (health.checks.publicViews.status === 'partial') {
+      health.recommendations.push('Verify Supabase project exposes "public" schema in API settings');
+    }
+
+    res.json(health);
   } catch (err: any) {
     res.status(500).json({
-      error: { code: 'HEALTH_ERROR', message: err?.message || 'health check failed' },
+      error: {
+        code: 'HEALTH_ERROR',
+        message: err?.message || 'health check failed',
+        stack: err?.stack,
+      },
     });
   }
 });

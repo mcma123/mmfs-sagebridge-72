@@ -6,13 +6,26 @@ let supabase: SupabaseClient | null = null;
 
 function getClient(url: string, key: string): SupabaseClient {
   if (supabase) return supabase;
-  supabase = createClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-  return supabase;
+
+  try {
+    console.log('[supabase] Creating Supabase client...', {
+      url,
+      keyPrefix: key.substring(0, 20) + '...',
+    });
+
+    supabase = createClient(url, key, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    console.log('[supabase] ✓ Supabase client created successfully');
+    return supabase;
+  } catch (err) {
+    console.error('[supabase] ✗ Failed to create Supabase client:', err);
+    throw err;
+  }
 }
 
 export function supabaseMiddleware(req: Request, _res: Response, next: NextFunction) {
@@ -25,11 +38,13 @@ export function supabaseMiddleware(req: Request, _res: Response, next: NextFunct
       process.env.VITE_SUPABASE_ANON_KEY;
 
     if (!url || !key) {
-      console.warn('[backend] Supabase env missing; continuing without Supabase client', {
-        urlCandidate: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
-        hasServiceRole: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-        hasAnon: !!process.env.SUPABASE_ANON_KEY,
-        hasViteAnon: !!process.env.VITE_SUPABASE_ANON_KEY,
+      console.warn('[supabase] ✗ Supabase env missing; continuing without Supabase client');
+      console.warn('[supabase] Environment check:', {
+        SUPABASE_URL: process.env.SUPABASE_URL ? 'present' : 'missing',
+        VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL ? 'present' : 'missing',
+        SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'present' : 'missing',
+        SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'present' : 'missing',
+        VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY ? 'present' : 'missing',
       });
       (req as any).supabaseAvailable = false;
       (req as any).supabase = undefined;
@@ -45,7 +60,12 @@ export function supabaseMiddleware(req: Request, _res: Response, next: NextFunct
     (req as any).storage = client.storage;
     return next();
   } catch (err) {
-    console.error('[backend] Supabase middleware error:', err);
+    console.error('[supabase] ✗ Supabase middleware error (gracefully degrading):', err);
+    console.error('[supabase] Error details:', {
+      name: (err as any)?.name,
+      message: (err as any)?.message,
+      stack: (err as any)?.stack?.split('\n').slice(0, 3).join('\n'),
+    });
     // Graceful degradation: proceed without Supabase so PG-backed endpoints still function
     (req as any).supabaseAvailable = false;
     (req as any).supabase = undefined;

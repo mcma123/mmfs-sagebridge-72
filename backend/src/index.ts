@@ -22,6 +22,7 @@ import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import app from './server';
 import { initAccountingRealtime } from './realtime/accounting';
+import { closePgPool } from './middleware/pg';
 
 const PORT = Number(process.env.PORT || 3000);
 
@@ -74,4 +75,44 @@ initAccountingRealtime(io);
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[backend] API server listening on http://localhost:${PORT}`);
+});
+
+// Graceful shutdown handling
+async function gracefulShutdown(signal: string) {
+  console.log(`\n[backend] Received ${signal}, starting graceful shutdown...`);
+
+  // Stop accepting new connections
+  server.close(() => {
+    console.log('[backend] ✓ HTTP server closed');
+  });
+
+  // Close Socket.IO connections
+  io.close(() => {
+    console.log('[backend] ✓ Socket.IO connections closed');
+  });
+
+  // Close PostgreSQL pool
+  try {
+    await closePgPool();
+  } catch (err) {
+    console.error('[backend] Error closing PostgreSQL pool:', err);
+  }
+
+  console.log('[backend] ✓ Graceful shutdown complete');
+  process.exit(0);
+}
+
+// Register shutdown handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught exceptions and unhandled rejections
+process.on('uncaughtException', (err) => {
+  console.error('[backend] Uncaught exception:', err);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[backend] Unhandled rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
 });

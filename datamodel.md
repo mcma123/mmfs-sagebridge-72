@@ -29,6 +29,11 @@ Purpose: centralize the application’s data model across database schemas, serv
  - Supabase REST: ensure “Exposed schemas” includes `public` so the Data API can select `public.accounting_*` views. Without this, `/api/v1/accounting/*` reads may return 500 with `DB_ERROR`.
 - Loading env: `dotenv/config` is imported in `backend/src/index.ts` and `backend/src/middleware/pg.ts` so both the server and PG pool creation see `.env` variables reliably.
 - Server port: `PORT` (default `3000`). Static assets are served from `dist/` in production with a catch‑all to `index.html`. Socket.IO is mounted at `/api/socket.io`.
+- Runtime resilience & diagnostics (v0.16):
+  - `pgMiddleware` now prefers `SUPABASE_DB_URL` over `DATABASE_URL` when both are present and logs which source is used (no secrets). SSL is enabled when required and TLS verification is relaxed in dev to support Supabase self-signed chains. See [backend/src/middleware/pg.ts](backend/src/middleware/pg.ts).
+  - `supabaseMiddleware` no longer throws when Supabase env vars are missing. Instead it logs a warning, sets `req.supabaseAvailable=false`, and skips attaching `req.db` so PG-backed endpoints can continue to work. See [backend/src/middleware/supabase.ts](backend/src/middleware/supabase.ts).
+  - `requireSupabase` guard is applied only on routes that use Supabase (entities, accounts, journals, ledger, tax reports). PG-backed routes like Trial Balance are not guarded and keep working even if Supabase is not configured. See [backend/src/routes/accounting.ts](backend/src/routes/accounting.ts).
+  - Health endpoint for diagnostics: `GET /api/v1/accounting/health` returns `{ supabaseAvailable, trialBalanceFnExists, publicViewsOk }` to quickly validate environment setup and migrations.
 
 ## Backend Architecture & Middleware
 - Server: Express app (`backend/src/server.ts`) with Socket.IO attached in `backend/src/index.ts`.
@@ -1155,6 +1160,65 @@ erDiagram
     - Page located at `/accounting/tax-reports/create` for tax return creation
     - Migration 013 must be run before using tax reports feature (already included in migration runner)
 
+|- v0.15.2 Report Pages Data Shape Fixes (current)
+  - Critical bug fixes for report pages (Accounts Receivable, Accounts Payable, Trial Balance):
+    - **Root cause identified**: API endpoints return `{ items: T[] }` wrapper, but report pages treated response as array and called `.filter()` directly on object
+    - **Frontend Data Shape Fix** (`src/pages/reports/AccountsReceivable.tsx`):
+      - **Issue**: `Uncaught TypeError: accounts.filter is not a function` at line 84 in useMemo hook
+      - **Root cause**: `getAccounts()` returns `{ items: AccountDTO[] }`, but code tried to call `.filter()` on the entire response object
+      - **Fix**: 
+        - Renamed `data: accounts` → `data: accountsData` in useQuery
+        - Renamed `data: entities` → `data: entitiesData` in useQuery
+        - Updated memo hook: `const accounts = accountsData?.items ?? []` before calling `.filter()`
+        - Updated memo hook: `const entities = entitiesData?.items ?? []` before processing
+        - Updated dependencies: `[accountsData]` and `[entitiesData]` instead of `[accounts]` and `[entities]`
+      - **Impact**: Page now loads without crash; accounts receivable aging report displays correctly
+      - **Lines changed**: 73, 82-90, 94, 138-149
+    - **Frontend Data Shape Fix** (`src/pages/reports/AccountsPayable.tsx`):
+      - **Issue**: `Uncaught TypeError: accounts.filter is not a function` at line 84 (same root cause)
+      - **Root cause**: Same API response shape issue as AR page
+      - **Fix**: Applied identical changes as AR page:
+        - Renamed `data: accounts` → `data: accountsData` in useQuery
+        - Renamed `data: entities` → `data: entitiesData` in useQuery
+        - Updated memo: `const accounts = accountsData?.items ?? []`
+        - Updated memo: `const entities = entitiesData?.items ?? []`
+        - Updated dependencies accordingly
+      - **Impact**: Page now loads without crash; accounts payable aging report displays correctly
+      - **Lines changed**: 73, 82-90, 94, 138-149
+    - **Frontend Fragment Props Fix** (`src/pages/accounting/TrialBalance.tsx`):
+      - **Issue**: React warning `Invalid prop 'data-lov-id' supplied to React.Fragment` - instrumentation layer attempts to add props to Fragment
+      - **Root cause**: `categories.map()` wrapped rows in `<React.Fragment>` which only accepts `key` and `children` props
+      - **Fix**:
+        - Changed from: `categories.map((category) => (<React.Fragment key={...}>...</React.Fragment>))`
+        - Changed to: `categories.flatMap((category) => [...rows])`
+        - Returns array of `<TableRow>` elements with unique keys for each header and detail row
+        - Category header row key: `hdr-${category.name}`
+        - Account detail row keys: `row-${category.name}-${account.accountNumber}`
+        - Conditionally spreads account rows: `...(isCollapsibleOpen(category.name) ? [...] : [])`
+      - **Impact**: React warning eliminated; Trial Balance page renders cleanly without console warnings
+      - **Lines changed**: 421-452
+  - Testing verification:
+    - Navigation to `/reports/receivables` → page loads, displays AR aging data, no console errors
+    - Navigation to `/reports/payables` → page loads, displays AP aging data, no console errors
+    - Navigation to `/accounting/trial-balance` → page loads, no Fragment warning in console
+    - All three report pages functional with live database data
+    - TypeScript compilation: No errors; all type safety maintained
+  - API response shape consistency note:
+    - **Pattern**: All list endpoints return `{ items: T[], total?: number }`
+    - **Best practice**: Always extract `.items` before processing arrays
+    - **Applied to**: getAccounts, getEntities, getLedger, getTrialBalance, and all other list endpoints
+  - Frontend best practice documented:
+    - **Array mapping for lists**: Extract `.items` from API response before filtering/mapping
+    - **Fragment usage**: Avoid Fragment as map root when instrumentation adds props; use flatMap with array return instead
+    - **Linter compliance**: All changes pass TypeScript compilation and lint checks
+  - Notes:
+    - No database schema or API contract changes
+    - All changes backward compatible with existing endpoints
+    - Report pages now consume API responses correctly per the documented response shape `{ items: T[] }`
+    - Frontend pages align with backend response format: `{ items: T[], total?: number }`
+    - No TypeScript compilation errors; all type safety maintained
+    - All three report pages (AR, AP, Trial Balance) now functional with proper data handling
+
 ## Consistency Notes & Alignment Plan
 
 - Auth schema: complete – backend uses `app.*`; seeding in `006_app_seed_admin.sql` ensures roles and an initial admin. Legacy `auth.*` not used by routes.
@@ -1197,7 +1261,9 @@ erDiagram
   - `src/pages/accounting/TrialBalance.tsx` - View trial balance with live data, date filtering, comparison period shortcuts, Excel export, and accounting equation validation (v0.12, v0.13).
   - `src/pages/accounting/ChartOfAccounts.tsx` - View and manage chart of accounts with balances from trial balance (v0.8), improved error handling (v0.14).
   - `src/pages/accounting/TaxReports.tsx` - View and manage tax reports with live data, workflow actions (draft/review/submit), tax liabilities display, upcoming deadlines, and Excel export (v0.15).
-- API Client: `src/lib/api/accounting.ts` (updated with workflow methods in v0.9, ledger methods in v0.11, trial balance method in v0.8, trial balance filters and export in v0.13, tax reports methods in v0.15).
+  - `src/pages/reports/AccountsReceivable.tsx` - Accounts Receivable aging report with live data, trend analysis, and Excel export; fixed API response shape handling in v0.15.2.
+  - `src/pages/reports/AccountsPayable.tsx` - Accounts Payable aging report with live data, trend analysis, and Excel export; fixed API response shape handling in v0.15.2.
+- API Client: `src/lib/api/accounting.ts` (updated with workflow methods in v0.9, ledger methods in v0.11, trial balance method in v0.8, trial balance filters and export in v0.13, tax reports methods in v0.15, AR/AP response shape handling in v0.15.2).
 - Auth API: `src/lib/api/auth.ts` (contains `getPrimaryRole()`, `getAccessToken()`, etc.).
 - Utilities: `src/lib/utils.ts` (includes `sanitizeNumber()` utility added in v0.13.1).
 - Backend Tests:

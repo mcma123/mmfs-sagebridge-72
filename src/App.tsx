@@ -23,6 +23,14 @@ import Tasks from "./pages/dms/Tasks";
 import Banking from "./pages/Banking";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+
+// Report pages
+import BalanceSheet from './pages/reports/BalanceSheet';
+import ExpenseReport from './pages/reports/ExpenseReport';
+import TaxSummary from './pages/reports/TaxSummary';
+import AccountsReceivable from './pages/reports/AccountsReceivable';
+import AccountsPayable from './pages/reports/AccountsPayable';
+import CashFlow from './pages/reports/CashFlow';
 import Entities from "./pages/Entities";
 import AddEntity from "./pages/entities/AddEntity";
 import DebitCreditNotes from "./pages/DebitCreditNotes";
@@ -78,7 +86,17 @@ const App = () => (
         <Route path="/notes/credit/new" element={<CreateCreditNote />} />
         <Route path="/payment-reconciliation" element={<PaymentReconciliation />} />
               <Route path="/banking" element={<Banking />} />
-              <Route path="/reports" element={<Reports />} />
+
+              {/* Reports Routes */}
+              <Route path="/reports" element={<Reports />}>
+                <Route path="balance-sheet" element={<BalanceSheet />} />
+                <Route path="expenses" element={<ExpenseReport />} />
+                <Route path="tax-summary" element={<TaxSummary />} />
+                <Route path="receivables" element={<AccountsReceivable />} />
+                <Route path="payables" element={<AccountsPayable />} />
+                <Route path="cash-flow" element={<CashFlow />} />
+              </Route>
+
               <Route path="/settings" element={<Settings />} />
               <Route path="/administration" element={<RoleGuard allow={['admin']}><Administration /></RoleGuard>} />
               <Route path="/administration/users" element={<RoleGuard allow={['admin']}><ManageUsers /></RoleGuard>} />

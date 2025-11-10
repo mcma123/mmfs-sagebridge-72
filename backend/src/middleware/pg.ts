@@ -33,7 +33,28 @@ function getPool(): Pool {
   }
 
   if (connectionString) {
-    pool = new Pool({ connectionString, ssl: sslRequired ? { rejectUnauthorized: false } : undefined });
+    pool = new Pool({
+      connectionString,
+      ssl: sslRequired ? { rejectUnauthorized: false } : undefined,
+      // Production-ready pool configuration for Supabase
+      max: 20,                            // Maximum pool size (increased from default 10)
+      idleTimeoutMillis: 30000,           // 30s idle timeout (matches Supabase pooler)
+      connectionTimeoutMillis: 10000,     // 10s connection timeout (prevent hanging)
+      keepAlive: true,                    // Enable TCP keepalive
+      keepAliveInitialDelayMillis: 10000, // Start keepalive after 10s
+    });
+
+    // Add error handler to prevent pool crashes
+    pool.on('error', (err: Error) => {
+      console.error('[pg] Unexpected pool error on idle client:', err);
+      // Pool will automatically remove bad client, no action needed
+    });
+
+    pool.on('connect', () => {
+      console.log('[pg] New client connected to pool');
+    });
+
+    console.log('[pg] ✓ PostgreSQL pool created with production configuration');
     return pool;
   }
 
@@ -54,7 +75,32 @@ function getPool(): Pool {
     throw err;
   }
 
-  pool = new Pool({ host, port, user, password, database, ssl: sslRequired ? { rejectUnauthorized: false } : undefined });
+  pool = new Pool({
+    host,
+    port,
+    user,
+    password,
+    database,
+    ssl: sslRequired ? { rejectUnauthorized: false } : undefined,
+    // Production-ready pool configuration for Supabase
+    max: 20,                            // Maximum pool size (increased from default 10)
+    idleTimeoutMillis: 30000,           // 30s idle timeout (matches Supabase pooler)
+    connectionTimeoutMillis: 10000,     // 10s connection timeout (prevent hanging)
+    keepAlive: true,                    // Enable TCP keepalive
+    keepAliveInitialDelayMillis: 10000, // Start keepalive after 10s
+  });
+
+  // Add error handler to prevent pool crashes
+  pool.on('error', (err: Error) => {
+    console.error('[pg] Unexpected pool error on idle client:', err);
+    // Pool will automatically remove bad client, no action needed
+  });
+
+  pool.on('connect', () => {
+    console.log('[pg] New client connected to pool');
+  });
+
+  console.log('[pg] ✓ PostgreSQL pool created with production configuration');
   return pool;
 }
 
@@ -67,6 +113,32 @@ export function pgMiddleware(req: Request, _res: Response, next: NextFunction) {
     // Defer to central error handling
     next(err);
   }
+}
+
+/**
+ * Gracefully close the PostgreSQL pool and all connections.
+ * Should be called during application shutdown (SIGTERM/SIGINT).
+ */
+export async function closePgPool(): Promise<void> {
+  if (pool) {
+    console.log('[pg] Closing PostgreSQL pool...');
+    try {
+      await pool.end();
+      pool = null;
+      console.log('[pg] ✓ PostgreSQL pool closed successfully');
+    } catch (err) {
+      console.error('[pg] Error closing pool:', err);
+      throw err;
+    }
+  }
+}
+
+/**
+ * Get the current pool instance (for health checks or manual operations).
+ * Returns null if pool hasn't been initialized yet.
+ */
+export function getPgPool(): Pool | null {
+  return pool;
 }
 
 // Extend Express Request typing for convenience

@@ -418,38 +418,38 @@ const TrialBalance = () => {
                     </TableRow>
                   ) : (
                     <>
-                      {categories.map((category) => (
-                        <React.Fragment key={category.name}>
-                          <TableRow className="hover:bg-sage-lightGray cursor-pointer" onClick={() => toggleCategory(category.name)}>
-                            <TableCell className="font-bold flex items-center">
-                              {isCollapsibleOpen(category.name) ?
-                                <ChevronDown size={16} className="mr-2" /> :
-                                <ChevronRight size={16} className="mr-2" />
-                              }
-                              {category.name}
-                            </TableCell>
-                            <TableCell></TableCell>
-                            <TableCell className="text-right font-medium font-mono">
-                              {category.totalDebit > 0 ? formatCurrency(category.totalDebit) : ''}
-                            </TableCell>
-                            <TableCell className="text-right font-medium font-mono">
-                              {category.totalCredit > 0 ? formatCurrency(category.totalCredit) : ''}
-                            </TableCell>
-                          </TableRow>
-                          {isCollapsibleOpen(category.name) && category.accounts.map((account) => (
-                            <TableRow key={`${category.name}-${account.accountNumber}`} className="bg-sage-lightGray/20">
-                              <TableCell className="pl-8">{account.name}</TableCell>
-                              <TableCell className="font-mono text-xs">{account.accountNumber}</TableCell>
-                              <TableCell className="text-right font-mono">
-                                {account.debit > 0 ? formatCurrency(account.debit) : ''}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                {account.credit > 0 ? formatCurrency(account.credit) : ''}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </React.Fragment>
-                      ))}
+                      {categories.flatMap((category) => [
+                        <TableRow key={`hdr-${category.name}`} className="hover:bg-sage-lightGray cursor-pointer" onClick={() => toggleCategory(category.name)}>
+                          <TableCell className="font-bold flex items-center">
+                            {isCollapsibleOpen(category.name) ?
+                              <ChevronDown size={16} className="mr-2" /> :
+                              <ChevronRight size={16} className="mr-2" />
+                            }
+                            {category.name}
+                          </TableCell>
+                          <TableCell></TableCell>
+                          <TableCell className="text-right font-medium font-mono">
+                            {category.totalDebit > 0 ? formatCurrency(category.totalDebit) : ''}
+                          </TableCell>
+                          <TableCell className="text-right font-medium font-mono">
+                            {category.totalCredit > 0 ? formatCurrency(category.totalCredit) : ''}
+                          </TableCell>
+                        </TableRow>,
+                        ...(isCollapsibleOpen(category.name)
+                          ? category.accounts.map((account) => (
+                              <TableRow key={`row-${category.name}-${account.accountNumber}`} className="bg-sage-lightGray/20">
+                                <TableCell className="pl-8">{account.name}</TableCell>
+                                <TableCell className="font-mono text-xs">{account.accountNumber}</TableCell>
+                                <TableCell className="text-right font-mono">
+                                  {account.debit > 0 ? formatCurrency(account.debit) : ''}
+                                </TableCell>
+                                <TableCell className="text-right font-mono">
+                                  {account.credit > 0 ? formatCurrency(account.credit) : ''}
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          : [])
+                      ])}
 
                       {/* Grand Totals */}
                       <TableRow className="font-bold bg-sage-lightGray">
