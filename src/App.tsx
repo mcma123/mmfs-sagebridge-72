@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { AuthProvider } from "@/contexts/AuthContext";
 import { ProjectsProvider } from "@/lib/store/projects";
 import { TasksProvider } from "@/lib/store/tasks";
 
@@ -69,13 +70,14 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <ThemeProvider>
-    <ProjectsProvider>
-      <TasksProvider>
-        <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
+    <AuthProvider>
+      <ProjectsProvider>
+        <TasksProvider>
+          <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
             <AnimatePresence mode="wait">
               <Routes>
               <Route path="/" element={<Landing />} />
@@ -144,6 +146,7 @@ const App = () => (
       </QueryClientProvider>
       </TasksProvider>
     </ProjectsProvider>
+    </AuthProvider>
   </ThemeProvider>
 );
 

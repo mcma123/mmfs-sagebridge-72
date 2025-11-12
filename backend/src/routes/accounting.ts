@@ -1,6 +1,7 @@
 import express from 'express';
 import { authorize } from '../middleware/rbac';
 import ExcelJS from 'exceljs';
+import { broadcastJournalPosted, broadcastGeneralRefresh } from '../realtime/dashboardBroadcast';
 
 const router = express.Router();
 

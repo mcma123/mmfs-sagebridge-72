@@ -2,18 +2,60 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useQuery } from '@tanstack/react-query';
+import { dashboardApi, type DashboardFilters } from '@/lib/api/dashboard';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
-const data = [
-  { name: 'Jan', income: 4000, expenses: 2400 },
-  { name: 'Feb', income: 3000, expenses: 1398 },
-  { name: 'Mar', income: 2000, expenses: 3800 },
-  { name: 'Apr', income: 2780, expenses: 3908 },
-  { name: 'May', income: 1890, expenses: 4800 },
-  { name: 'Jun', income: 2390, expenses: 3800 },
-  { name: 'Jul', income: 3490, expenses: 4300 },
-];
+interface PerformanceChartProps {
+  filters?: DashboardFilters;
+}
 
-const PerformanceChart: React.FC = () => {
+const PerformanceChart: React.FC<PerformanceChartProps> = ({ filters }) => {
+  const { data: response, isLoading, error } = useQuery({
+    queryKey: ['dashboard', 'performance', filters],
+    queryFn: () => dashboardApi.getPerformance(7, filters),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchInterval: 60 * 1000, // Auto-refresh every 60 seconds
+  });
+
+  if (isLoading) {
+    return (
+      <Card className="h-full">
+        <CardHeader className="pb-0">
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-36 mt-2" />
+        </CardHeader>
+        <CardContent className="pt-6">
+          <Skeleton className="h-80 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="h-full">
+        <CardHeader>
+          <CardTitle className="text-lg">Financial Performance</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert variant="destructive">
+            <AlertDescription>
+              Failed to load performance data. Please try again later.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const data = response?.items.map(item => ({
+    name: item.month_name,
+    income: Number(item.income),
+    expenses: Number(item.expenses),
+  })) || [];
+
   return (
     <Card className="h-full">
       <CardHeader className="pb-0">

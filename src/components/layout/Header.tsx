@@ -1,17 +1,20 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Search, 
-  Bell, 
-  Mail, 
-  Menu, 
-  X, 
-  ChevronDown, 
+import { Link } from 'react-router-dom';
+import {
+  Search,
+  Bell,
+  Mail,
+  Menu,
+  X,
+  ChevronDown,
   User,
   HelpCircle
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getUserInitials, formatUserRole } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
 
 interface HeaderProps {
   toggleSidebar: () => void;
@@ -22,6 +25,10 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar, sidebarCollapsed }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  const { user, logout } = useAuth();
+
+  const userInitials = getUserInitials(user?.displayName || user?.email);
+  const userRole = formatUserRole(user?.role);
   
   return (
     <header className="h-16 border-b border-border/60 bg-background/95 backdrop-blur-sm px-4 flex items-center justify-between z-10 shadow-nav">
@@ -115,12 +122,14 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar, sidebarCollapsed }) => {
             onClick={() => setShowProfile(!showProfile)}
             className="flex items-center gap-2 hover:bg-sage-lightGray rounded-full transition-colors pl-1 pr-2 py-1"
           >
-            <div className="w-8 h-8 bg-sage-blue rounded-full flex items-center justify-center text-primary-foreground">
-              <User size={16} />
+            <div className="w-8 h-8 bg-sage-blue rounded-full flex items-center justify-center text-primary-foreground text-xs font-semibold">
+              {userInitials}
             </div>
             <div className="hidden md:block text-left">
-              <p className="text-sm font-medium leading-none">John Doe</p>
-              <p className="text-xs text-muted-foreground leading-none mt-1">Admin</p>
+              <p className="text-sm font-medium leading-none">{user?.displayName || user?.email || 'User'}</p>
+              <div className="flex items-center gap-1 mt-1">
+                <Badge variant="secondary" className="text-xs px-1 py-0 h-4">{userRole}</Badge>
+              </div>
             </div>
             <ChevronDown size={14} className="text-muted-foreground hidden md:block" />
           </button>
@@ -131,16 +140,21 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar, sidebarCollapsed }) => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
               transition={{ duration: 0.2 }}
-              className="absolute right-0 mt-2 w-48 bg-card text-card-foreground rounded-lg shadow-lg py-2 z-50 border border-border"
+              className="absolute right-0 mt-2 w-56 bg-card text-card-foreground rounded-lg shadow-lg py-2 z-50 border border-border"
             >
               <div className="px-4 py-2 border-b border-border">
-                <p className="font-medium text-sm">John Doe</p>
-                <p className="text-xs text-muted-foreground">john.doe@example.com</p>
+                <p className="font-medium text-sm">{user?.displayName || 'User'}</p>
+                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                <Badge variant="outline" className="text-xs mt-1">{userRole}</Badge>
               </div>
               <div className="pt-1">
-                <button className="w-full text-left px-4 py-2 text-sm hover:bg-sage-lightGray transition-colors">
+                <Link
+                  to="/settings"
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-sage-lightGray transition-colors block"
+                  onClick={() => setShowProfile(false)}
+                >
                   Profile Settings
-                </button>
+                </Link>
                 <button className="w-full text-left px-4 py-2 text-sm hover:bg-sage-lightGray transition-colors">
                   Company Settings
                 </button>
@@ -148,7 +162,10 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar, sidebarCollapsed }) => {
                   Preferences
                 </button>
                 <div className="border-t border-border mt-1 pt-1">
-                  <button className="w-full text-left px-4 py-2 text-sm hover:bg-sage-lightGray transition-colors text-red-600">
+                  <button
+                    onClick={logout}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-sage-lightGray transition-colors text-red-600"
+                  >
                     Logout
                   </button>
                 </div>

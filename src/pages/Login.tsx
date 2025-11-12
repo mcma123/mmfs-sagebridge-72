@@ -7,6 +7,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle } from 'lucide-react';
 import { login } from '@/lib/api/auth';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -17,7 +18,8 @@ const Login: React.FC = () => {
   const isMobile = useIsMobile();
   const location = useLocation();
   const successMessage = location.state?.message;
-  
+  const { refreshUser } = useAuth();
+
   const navigate = useNavigate();
   
   const handleLogin = async (e: React.FormEvent) => {
@@ -29,6 +31,10 @@ const Login: React.FC = () => {
       localStorage.setItem('accessToken', res.accessToken);
       // Optionally store user for display
       localStorage.setItem('currentUser', JSON.stringify(res.user));
+
+      // Refresh user context to load user data
+      await refreshUser();
+
       setLoading(false);
       navigate('/dashboard');
     } catch (err: any) {

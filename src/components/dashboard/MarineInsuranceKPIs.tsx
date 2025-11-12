@@ -1,54 +1,107 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, TrendingDown, AlertCircle, DollarSign, Users, Shield, FileText } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { dashboardApi, type DashboardFilters } from '@/lib/api/dashboard';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
-const MarineInsuranceKPIs = () => {
+interface MarineInsuranceKPIsProps {
+  filters?: DashboardFilters;
+}
+
+const MarineInsuranceKPIs: React.FC<MarineInsuranceKPIsProps> = ({ filters }) => {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['dashboard', 'marine-kpis', filters],
+    queryFn: () => dashboardApi.getMarineKPIs(filters),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchInterval: 60 * 1000, // Auto-refresh every 60 seconds
+  });
+
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat('en-ZA', {
+      style: 'currency',
+      currency: 'ZAR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const formatPercent = (value: number): string => {
+    return `${value.toFixed(1)}%`;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <Card key={i}>
+            <CardHeader className="pb-2">
+              <Skeleton className="h-4 w-48" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-8 w-32 mb-2" />
+              <Skeleton className="h-3 w-24" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>
+          Failed to load marine insurance KPIs. Please try again later.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   const kpis = [
     {
       title: 'Outstanding Premium Receivables',
-      value: 'R 245,500',
-      change: '+12.5%',
-      trend: 'up',
+      value: formatCurrency(data?.premium_receivables || 0),
+      change: `${data?.premium_receivables_change || 0 >= 0 ? '+' : ''}${data?.premium_receivables_change || 0}%`,
+      trend: (data?.premium_receivables_change || 0) >= 0 ? 'up' : 'down',
       icon: DollarSign,
-      aging: { current: 'R 180,000', overdue: 'R 65,500' }
     },
     {
       title: 'CDANT Commission Payable',
-      value: 'R 122,300',
-      change: '+8.3%',
-      trend: 'up',
+      value: formatCurrency(data?.commission_payable || 0),
+      change: `${data?.commission_payable_change || 0 >= 0 ? '+' : ''}${data?.commission_payable_change || 0}%`,
+      trend: (data?.commission_payable_change || 0) >= 0 ? 'up' : 'down',
       icon: Users,
-      aging: { current: 'R 95,000', overdue: 'R 27,300' }
     },
     {
       title: 'Unreconciled Payments',
-      value: '15 items',
-      amount: 'R 89,750',
+      value: `${data?.unreconciled_count || 0} items`,
+      amount: formatCurrency(data?.unreconciled_amount || 0),
       trend: 'neutral',
       icon: AlertCircle,
       color: 'amber'
     },
     {
       title: 'Premium Income (MTD)',
-      value: 'R 324,500',
-      change: '+18.2%',
-      trend: 'up',
+      value: formatCurrency(data?.premium_income_mtd || 0),
+      change: `${data?.premium_income_change || 0 >= 0 ? '+' : ''}${data?.premium_income_change || 0}%`,
+      trend: (data?.premium_income_change || 0) >= 0 ? 'up' : 'down',
       icon: TrendingUp,
-      target: 'Target: R 400,000'
     },
     {
       title: 'Claims Ratio',
-      value: '45.2%',
-      change: '-3.1%',
-      trend: 'down',
+      value: formatPercent(data?.claims_ratio || 0),
+      change: `${data?.claims_ratio_change || 0 >= 0 ? '+' : ''}${data?.claims_ratio_change || 0}%`,
+      trend: (data?.claims_ratio_change || 0) <= 0 ? 'down' : 'up', // Lower is better for claims ratio
       icon: Shield,
       description: 'Claims / Premium Income'
     },
     {
       title: 'Reinsurance Utilization',
-      value: '62.8%',
-      change: '+5.4%',
-      trend: 'up',
+      value: formatPercent(data?.reinsurance_utilization || 0),
+      change: `${data?.reinsurance_utilization_change || 0 >= 0 ? '+' : ''}${data?.reinsurance_utilization_change || 0}%`,
+      trend: (data?.reinsurance_utilization_change || 0) >= 0 ? 'up' : 'down',
       icon: FileText,
       description: 'Ceded / Gross Premium'
     }

@@ -22,6 +22,7 @@ import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import app from './server';
 import { initAccountingRealtime } from './realtime/accounting';
+import { setDashboardIO } from './realtime/dashboardBroadcast';
 import { closePgPool } from './middleware/pg';
 
 const PORT = Number(process.env.PORT || 3000);
@@ -73,6 +74,7 @@ const io = new SocketIOServer(server, {
 
 // Initialize realtime modules
 initAccountingRealtime(io);
+setDashboardIO(io);
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[backend] API server listening on http://localhost:${PORT}`);

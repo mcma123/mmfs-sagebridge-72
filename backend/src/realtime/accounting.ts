@@ -96,6 +96,30 @@ export function initAccountingRealtime(io: Server) {
       console.log(`[ws] client disconnected: ${who} reason=${reason}`);
     });
 
+    // Subscribe to dashboard updates
+    socket.on('dashboard:subscribe', (ack?: (payload: any) => void) => {
+      try {
+        socket.join('dashboard-updates');
+        console.log(`[ws] ${who} subscribed to dashboard updates`);
+        if (ack) return ack({ success: true });
+      } catch (err: any) {
+        const payload = { error: { message: String(err?.message || err), code: 'SUBSCRIBE_ERROR' } };
+        if (ack) return ack(payload);
+      }
+    });
+
+    // Unsubscribe from dashboard updates
+    socket.on('dashboard:unsubscribe', (ack?: (payload: any) => void) => {
+      try {
+        socket.leave('dashboard-updates');
+        console.log(`[ws] ${who} unsubscribed from dashboard updates`);
+        if (ack) return ack({ success: true });
+      } catch (err: any) {
+        const payload = { error: { message: String(err?.message || err), code: 'UNSUBSCRIBE_ERROR' } };
+        if (ack) return ack(payload);
+      }
+    });
+
     // Fetch accounting refs (entities + accounts)
     socket.on('accounting:fetchRefs', async (ack?: (payload: any) => void) => {
       try {

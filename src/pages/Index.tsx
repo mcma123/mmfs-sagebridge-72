@@ -5,50 +5,45 @@ import RecentTransactions from '@/components/dashboard/RecentTransactions';
 import UpcomingPayments from '@/components/dashboard/UpcomingPayments';
 import PerformanceChart from '@/components/dashboard/PerformanceChart';
 import MarineInsuranceKPIs from '@/components/dashboard/MarineInsuranceKPIs';
+import { FilterBar } from '@/components/dashboard/FilterBar';
+import { useDashboardFilters } from '@/hooks/useDashboardFilters';
 import { motion } from 'framer-motion';
 
 const Index: React.FC = () => {
+  const { getApiFilters } = useDashboardFilters();
+  const filters = getApiFilters();
+
   return (
     <MainLayout>
-      <motion.div 
-        className="space-y-6"
+      <motion.div
+        className="space-y-0"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
       >
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 pb-0">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">MMFS Dashboard</h1>
-
-          </div>
-          <div className="flex items-center gap-2">
-            <select className="bg-sage-lightGray border-0 rounded-md text-sm py-2 pl-3 pr-8 focus:ring-1 focus:ring-primary-500">
-              <option>This Month</option>
-              <option>Last Month</option>
-              <option>Last Quarter</option>
-              <option>This Year</option>
-            </select>
-            <button className="bg-primary-500 hover:bg-primary-600 text-white rounded-md px-4 py-2 text-sm font-medium transition-colors">
-              Export Report
-            </button>
           </div>
         </div>
-        
-        <div className="space-y-6">
-          <MarineInsuranceKPIs />
+
+        <FilterBar />
+
+        <div className="space-y-6 p-6">
+          <MarineInsuranceKPIs filters={filters} />
           
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <div className="lg:col-span-2">
-              <PerformanceChart />
+              <PerformanceChart filters={filters} />
             </div>
             <div>
-              <UpcomingPayments />
+              <UpcomingPayments filters={filters} />
             </div>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <div className="md:col-span-2">
-              <RecentTransactions />
+              <RecentTransactions filters={filters} />
             </div>
             <div>
               <div className="bg-primary-100 p-5 rounded-lg border border-primary-200 h-full">

@@ -47,6 +47,9 @@ async function run() {
     '016_drop_banking_triggers.sql',
     '015_dms_projects.sql',
     '017_dms_tasks.sql',
+    '018_dashboard_views.sql',
+    '019_dashboard_historical_changes.sql',
+    '020_dashboard_filters.sql',
   ];
   console.log('[migrate_app] Running files:', filesToRun.join(', '));
   for (const fname of filesToRun) {
