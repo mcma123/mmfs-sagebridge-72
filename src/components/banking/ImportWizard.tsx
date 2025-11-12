@@ -10,7 +10,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, Wand2, TableProperties, CheckCircle, Settings2 } from 'lucide-react';
 import type { ImportMappingTemplate, NormalizedTransaction, DestinationSelection } from '@/lib/banking/models';
-import { analyzeFile, createSession, saveTemplate, setSessionTemplate, stageFile, suggestField, getSession, editRow, excludeRows, commitSession } from '@/lib/banking/store';
+import { analyzeFile, createSession, saveTemplate, setSessionTemplate, stageFile, suggestField, getSession, editRow, excludeRows, computeFileHash } from '@/lib/banking/store';
+import { parseAllRows } from '@/lib/banking/csv';
+import * as bankingApi from '@/lib/api/banking';
+import { getPrimaryRole } from '@/lib/api/auth';
 
 type Props = {
   open: boolean;
@@ -46,7 +49,14 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
   const [defaultAccountCode, setDefaultAccountCode] = useState('');
   const [rows, setRows] = useState<NormalizedTransaction[]>([]);
   const [dest, setDest] = useState<DestinationSelection>(initialDest ?? { journalEntries: true, trialBalance: false, chartOfAccounts: false });
-  const totals = useMemo(() => getSessionTotals(sessionId), [sessionId, rows.length]);
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isStaging, setIsStaging] = useState(false);
+  const [stagingError, setStagingError] = useState<string | null>(null);
+  const [backendSessionData, setBackendSessionData] = useState<any>(null);
+  const totals = useMemo(() => getSessionTotals(sessionId, backendSessionData), [sessionId, backendSessionData, rows.length]);
 
   useEffect(() => {
     if (!open) {
@@ -54,6 +64,8 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
       setStep('upload'); setFile(null); setAnalysis(null); setSessionId(null); setMapping({});
       setTemplateName(''); setBankName(''); setInvertSigns(false); setFixedCurrency(''); setDefaultAccountCode(''); setRows([]);
       setDest(initialDest ?? { journalEntries: true, trialBalance: false, chartOfAccounts: false });
+      setIsAnalyzing(false); setUploadError(null); setIsCommitting(false); setCommitError(null);
+      setIsStaging(false); setStagingError(null); setBackendSessionData(null);
     }
   }, [open, initialDest]);
 
@@ -70,16 +82,102 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
   }, [initialDest]);
 
   async function onFileSelected(f: File) {
-    setFile(f);
-    const sess = await createSession(f, 'demo-user');
-    setSessionId(sess.id);
-    const res = await analyzeFile(f);
-    setAnalysis(res);
-    // initialize mapping suggestions
-    const map: Record<string, string | undefined> = {};
-    for (const h of res.headers) { map[h] = suggestField(h); }
-    setMapping(map);
-    setStep('map');
+    // Reset errors
+    setUploadError(null);
+    setIsAnalyzing(true);
+
+    try {
+      // Validate file
+      if (!f.name.toLowerCase().endsWith('.csv')) {
+        throw new Error('Please select a CSV file');
+      }
+
+      const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+      if (f.size > MAX_FILE_SIZE) {
+        throw new Error('File size must be less than 10MB');
+      }
+
+      // Set file and analyze locally first
+      setFile(f);
+      const res = await analyzeFile(f);
+      setAnalysis(res);
+
+      // Validate CSV has headers
+      if (!res.headers || res.headers.length === 0) {
+        throw new Error('CSV file has no headers. Please check file format.');
+      }
+
+      // Parse all rows for backend analysis
+      const { rows: allRows } = await parseAllRows(f);
+
+      if (allRows.length === 0) {
+        throw new Error('CSV file has no data rows');
+      }
+
+      // Create session on backend
+      const role = getPrimaryRole() || 'accountant';
+      const fileHash = await computeFileHash(f);
+      const backendSession = await bankingApi.createSession(
+        {
+          fileName: f.name,
+          fileHash: fileHash,
+          mappingTemplateId: null,
+        },
+        role
+      );
+
+      // Also create session in localStorage for local operations
+      const localSession = await createSession(f, 'demo-user');
+      setSessionId(String(backendSession.id));
+
+      // Call backend API to analyze and compute totals
+      const analyzeResponse = await bankingApi.analyzeSession(
+        String(backendSession.id),
+        {
+          rows: allRows.map((row, index) => ({
+            rowIndex: index,
+            date: row.Date || row.date || null,
+            description: row.Description || row.description || null,
+            amount: parseFloat(row.Amount || row.amount || '0') || null,
+            debit: parseFloat(row.Debit || row.debit || '0') || null,
+            credit: parseFloat(row.Credit || row.credit || '0') || null,
+            accountCode: row['Account Code'] || row.AccountCode || row['Account'] || null,
+            reference: row.Reference || row.reference || null,
+            currency: row.Currency || row.currency || null,
+          })),
+        },
+        role
+      );
+
+      // Store backend session data with totals for display
+      setBackendSessionData(analyzeResponse);
+
+      // Initialize mapping suggestions
+      const map: Record<string, string | undefined> = {};
+      for (const h of res.headers) {
+        map[h] = suggestField(h);
+      }
+      setMapping(map);
+
+      // Success - move to mapping step
+      toast({
+        title: 'File uploaded successfully',
+        description: `Analyzed ${allRows.length} rows from ${f.name}`,
+      });
+
+      setStep('map');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Failed to upload file';
+      setUploadError(errorMsg);
+      toast({
+        title: 'Upload failed',
+        description: errorMsg,
+        variant: 'destructive',
+      });
+      console.error('[ImportWizard] File upload error:', error);
+    } finally {
+      setIsAnalyzing(false);
+    }
   }
 
   function templateFromState(): Omit<ImportMappingTemplate, 'id'> {
@@ -97,13 +195,62 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
 
   async function stage() {
     if (!file || !sessionId) return;
-    const tmpl = saveTemplate(templateFromState());
-    setSessionTemplate(sessionId, tmpl.id);
-    const { rows } = await stageFile(sessionId, file, tmpl);
-    const sess = getSession(sessionId);
-    setRows(sess.rows);
-    toast({ title: 'Staging complete', description: `${rows} rows processed` });
-    setStep('preview');
+
+    setStagingError(null);
+    setIsStaging(true);
+
+    try {
+      // Save template locally
+      const tmpl = saveTemplate(templateFromState());
+      setSessionTemplate(sessionId, tmpl.id);
+
+      // Stage rows locally
+      const { rows: rowCount } = await stageFile(sessionId, file, tmpl);
+      const sess = getSession(sessionId);
+      setRows(sess.rows);
+
+      // Call backend API to persist staged transactions
+      const role = getPrimaryRole() || 'accountant';
+      await bankingApi.stageTransactions(
+        sessionId,
+        {
+          transactions: sess.rows.map((row) => ({
+            rowIndex: row.rowIndex,
+            date: row.date,
+            description: row.description,
+            amount: row.amount,
+            debit: row.debit,
+            credit: row.credit,
+            accountCode: row.accountCode,
+            reference: row.reference,
+            currency: row.currency,
+            validationStatus: row.validationStatus,
+            duplicateFlag: row.duplicateFlag,
+            excluded: row.excluded,
+            editHistory: row.editHistory,
+          })),
+        },
+        role
+      );
+
+      toast({
+        title: 'Staging complete',
+        description: `${rowCount} rows staged successfully`,
+      });
+
+      setStep('preview');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Failed to stage rows';
+      setStagingError(errorMsg);
+      toast({
+        title: 'Staging failed',
+        description: errorMsg,
+        variant: 'destructive',
+      });
+      console.error('[ImportWizard] Staging error:', error);
+    } finally {
+      setIsStaging(false);
+    }
   }
 
   function updateCell(rowId: string, field: any, value: any) {
@@ -122,12 +269,51 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
 
   async function commit() {
     if (!sessionId) return;
-    const res = await commitSession(sessionId, dest);
-    if (res.success) {
-      toast({ title: 'Import committed', description: `${res.committedRows} rows committed` });
-      setStep('done');
-    } else {
-      toast({ title: 'Commit failed', description: `${res.errors.length} errors`, variant: 'destructive' });
+
+    setIsCommitting(true);
+    setCommitError(null);
+
+    try {
+      const role = getPrimaryRole() || 'accountant';
+
+      // Call backend API to commit the session
+      const result = await bankingApi.commitSession(
+        sessionId,
+        {
+          bankAccountCode: 'DEFAULT', // Default account code (not required for this flow)
+          destinations: dest,
+          aggregation: 'none',
+        },
+        role
+      );
+
+      if (result.success) {
+        toast({
+          title: 'Import committed',
+          description: `Successfully committed ${result.committedRows} transactions to selected destinations`
+        });
+        setStep('done');
+      } else {
+        const errorMsg = result.errors.length > 0
+          ? `${result.errors.length} validation errors occurred`
+          : 'Commit failed';
+        setCommitError(errorMsg);
+        toast({
+          title: 'Commit failed',
+          description: errorMsg,
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error occurred';
+      setCommitError(errorMsg);
+      toast({
+        title: 'Commit failed',
+        description: errorMsg,
+        variant: 'destructive'
+      });
+    } finally {
+      setIsCommitting(false);
     }
   }
 
@@ -179,15 +365,39 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
                   <CardDescription>Select your bank statement file</CardDescription>
                 </CardHeader>
                 <CardContent>
+                  {uploadError && (
+                    <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded-md text-sm text-destructive">
+                      {uploadError}
+                    </div>
+                  )}
+                  {isAnalyzing && (
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-700">
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                        <span>Analyzing CSV file...</span>
+                      </div>
+                    </div>
+                  )}
                   <Tabs defaultValue="csv">
                     <TabsList>
                       <TabsTrigger value="csv">CSV</TabsTrigger>
                       <TabsTrigger value="xls" disabled>Excel (coming)</TabsTrigger>
                     </TabsList>
                     <TabsContent value="csv" className="mt-4">
-                      <Input type="file" accept=".csv,text/csv" onChange={(e) => {
-                        const f = e.target.files?.[0]; if (f) onFileSelected(f);
-                      }} />
+                      <Input
+                        type="file"
+                        accept=".csv,text/csv"
+                        disabled={isAnalyzing}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) onFileSelected(f);
+                        }}
+                      />
+                      {file && !isAnalyzing && (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          Selected: {file.name}
+                        </p>
+                      )}
                     </TabsContent>
                   </Tabs>
                 </CardContent>
@@ -201,6 +411,19 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
                   <CardDescription>Assign CSV headers to system fields</CardDescription>
                 </CardHeader>
                 <CardContent>
+                  {stagingError && (
+                    <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded-md text-sm text-destructive">
+                      {stagingError}
+                    </div>
+                  )}
+                  {isStaging && (
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-700">
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                        <span>Staging rows...</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                       <label className="text-sm">Template Name</label>
@@ -254,7 +477,9 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
                     </Table>
                   </div>
                   <div className="mt-4 flex justify-end">
-                    <Button onClick={stage}>Stage Rows</Button>
+                    <Button onClick={stage} disabled={isStaging}>
+                      {isStaging ? 'Staging...' : 'Stage Rows'}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -352,6 +577,11 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
                   <CardDescription>Review and confirm commit</CardDescription>
                 </CardHeader>
                 <CardContent>
+                  {commitError && (
+                    <div className="mb-4 p-3 bg-destructive/10 border border-destructive rounded-md text-sm text-destructive">
+                      {commitError}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>Rows</div><div>{totals?.count ?? 0}</div>
                     <div>Valid</div><div>{totals?.valid ?? 0}</div>
@@ -360,8 +590,10 @@ export default function ImportWizard({ open, onOpenChange, initialFile = null, i
                     <div>Excluded</div><div>{totals?.excluded ?? 0}</div>
                   </div>
                   <div className="mt-4 flex justify-between">
-                    <Button variant="outline" onClick={()=>setStep('dest')}>Back</Button>
-                    <Button onClick={commit}>Commit Import</Button>
+                    <Button variant="outline" onClick={()=>setStep('dest')} disabled={isCommitting}>Back</Button>
+                    <Button onClick={commit} disabled={isCommitting}>
+                      {isCommitting ? 'Committing...' : 'Commit Import'}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -396,10 +628,22 @@ function StepItem({ active, icon, label }: { active: boolean; icon: React.ReactN
   );
 }
 
-function getSessionTotals(sessionId: string | null) {
+function getSessionTotals(sessionId: string | null, backendData: any) {
   if (!sessionId) return null;
-  const s = getSession(sessionId);
-  return s.session.totals as any;
+
+  // If we have backend session data with totals, use that
+  if (backendData?.totals) {
+    return backendData.totals;
+  }
+
+  // Fallback to localStorage session (with null safety)
+  try {
+    const s = getSession(sessionId);
+    return s?.session?.totals ?? null;
+  } catch (error) {
+    // Session not found in localStorage - return null gracefully
+    return null;
+  }
 }
 
 function formatAmt(n: number) { return n.toLocaleString(undefined, { style: 'currency', currency: 'USD' }); }

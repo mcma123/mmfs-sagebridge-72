@@ -12,9 +12,9 @@ export type TaskFormData = {
   taskTitle: string;
   taskType: "Upload Document" | "Review & Approve" | "Follow-up Action" | "Financial Task" | "Send Communication";
   assignedTo: string;
-  projectReference: string;
+  projectReference?: string;
   dueDate: string; // ISO date string
-  priority: "Low" | "Medium" | "High";
+  priority: "Low" | "Medium" | "High" | "Urgent";
   description?: string;
   estimatedHours?: number;
   tags?: string[];
@@ -30,9 +30,10 @@ const schema = z.object({
     "Send Communication",
   ], { required_error: "Select a task type" }),
   assignedTo: z.string().min(1, "Select assignee"),
-  projectReference: z.string().min(1, "Select a project"),
+  // Optional link to a project
+  projectReference: z.string().optional(),
   dueDate: z.string().min(1, "Due date is required"),
-  priority: z.enum(["Low", "Medium", "High"], { required_error: "Select priority" }),
+  priority: z.enum(["Low", "Medium", "High", "Urgent"], { required_error: "Select priority" }),
   description: z.string().optional(),
   estimatedHours: z
     .number({ invalid_type_error: "Enter a number" })
@@ -78,7 +79,7 @@ export default function NewTaskForm({
       taskTitle: values.taskTitle,
       taskType: values.taskType,
       assignedTo: values.assignedTo,
-      projectReference: values.projectReference,
+      projectReference: values.projectReference ? values.projectReference : undefined,
       dueDate: values.dueDate,
       priority: values.priority,
       description: values.description || undefined,
@@ -220,6 +221,7 @@ export default function NewTaskForm({
                         <SelectItem value="Low">Low</SelectItem>
                         <SelectItem value="Medium">Medium</SelectItem>
                         <SelectItem value="High">High</SelectItem>
+                        <SelectItem value="Urgent">Urgent</SelectItem>
                       </SelectContent>
                     </Select>
                   </FormControl>

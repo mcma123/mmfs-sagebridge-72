@@ -6,20 +6,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Search, Grid3x3, List, Kanban, Flag } from 'lucide-react';
+import { Plus, Search, Grid3x3, List, Kanban, Flag, Trash } from 'lucide-react';
 import SlideOutPanel from '@/components/ui/slide-out-panel';
 import NewProjectForm, { ProjectFormData } from '@/components/dms/NewProjectForm';
 import { toast } from '@/hooks/use-toast';
 import { useProjects } from '@/lib/store/projects';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { updateProjectStatus, createProjectNote } from '@/lib/api/projects';
+import { updateProjectStatus, createProjectNote, createProject, deleteProject } from '@/lib/api/projects';
 
 const Projects: React.FC = () => {
   const [view, setView] = useState<'grid' | 'list' | 'kanban'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
-  const { projects, addProject, updateStatus, addNote } = useProjects();
+  const { projects, addProject, updateStatus, addNote, removeProject } = useProjects();
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -68,32 +68,45 @@ const Projects: React.FC = () => {
 
         <SlideOutPanel title="New Project" open={newProjectOpen} onOpenChange={setNewProjectOpen}>
           <NewProjectForm
-            onCreate={(data: ProjectFormData) => {
-              const currencySymbol = (c: ProjectFormData['currency']) => {
-                switch (c) {
-                  case 'USD': return '$';
-                  case 'EUR': return '€';
-                  case 'GBP': return '£';
-                  case 'ZAR': return 'R';
-                  default: return '';
-                }
-              };
-              const formattedValue = `${currencySymbol(data.currency)}${new Intl.NumberFormat().format(data.value)}`;
-              const newItem = {
-                id: `PRJ-${Date.now()}`,
-                country: data.country,
-                client: data.clientName,
-                name: data.projectName,
-                type: data.projectType,
-                coverage: data.coverage,
-                value: formattedValue,
-                dueDate: data.endDate || data.startDate,
-                status: data.status,
-                progress: 0,
-              };
-              addProject(newItem);
-              setNewProjectOpen(false);
-              toast({ title: 'Project created', description: `${newItem.name} added to the list` });
+            onCreate={async (data: ProjectFormData) => {
+              try {
+                const id = `PRJ-${Date.now()}`;
+                const payload = {
+                  id,
+                  projectName: data.projectName,
+                  projectType: data.projectType,
+                  clientName: data.clientName,
+                  country: data.country,
+                  coverage: data.coverage,
+                  value: data.value,
+                  currency: data.currency,
+                  dueDate: data.endDate || data.startDate,
+                  status: data.status,
+                  description: data.description,
+                  assignedTeam: data.assignedTeam,
+                };
+                const created = await createProject(payload);
+                addProject({
+                  id: created.id,
+                  country: created.country,
+                  client: created.client,
+                  name: created.name,
+                  type: created.type,
+                  coverage: created.coverage,
+                  value: created.value,
+                  dueDate: created.dueDate,
+                  status: created.status as any,
+                  progress: created.progress,
+                  stage: created.stage,
+                  team: created.team,
+                  daysInStage: created.daysInStage,
+                  blockers: created.blockers,
+                });
+                setNewProjectOpen(false);
+                toast({ title: 'Project created', description: `${created.name} added to the list` });
+              } catch (e) {
+                toast({ title: 'Create failed', description: (e as any)?.message || 'Could not create project', variant: 'destructive' });
+              }
             }}
             onCancel={() => setNewProjectOpen(false)}
           />
@@ -164,40 +177,62 @@ const Projects: React.FC = () => {
                       <Badge variant="outline" className="font-mono text-xs">
                         {project.id}
                       </Badge>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Badge
-                            className={getStatusColor(project.status)}
-                            aria-label={`Project status: ${project.status}`}
-                            title={`Change status for ${project.name}`}
-                            role="button"
-                            tabIndex={0}
-                          >
-                            {project.status}
-                          </Badge>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                              {['Draft','Active','Pending Approval','In Progress','Done','Cancelled'].map((s) => (
-                                <DropdownMenuItem
-                                  key={s}
-                                  aria-label={`Set status to ${s}`}
-                                  onClick={async () => {
-                                    const prev = project.status;
-                                    updateStatus(project.id, s as any);
-                                    try {
-                                      await updateProjectStatus(project.id, s as any);
-                                      toast({ title: 'Status updated', description: `${project.name} → ${s}` });
-                                    } catch (e) {
-                                      updateStatus(project.id, prev);
-                                      toast({ title: 'Update failed', description: 'Could not change status', variant: 'destructive' });
-                                    }
-                                  }}
-                                >
-                                  {s}
-                                </DropdownMenuItem>
-                              ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <div className="flex items-center gap-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Badge
+                              className={getStatusColor(project.status)}
+                              aria-label={`Project status: ${project.status}`}
+                              title={`Change status for ${project.name}`}
+                              role="button"
+                              tabIndex={0}
+                            >
+                              {project.status}
+                            </Badge>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                                {['Draft','Active','Pending Approval','In Progress','Done','Cancelled'].map((s) => (
+                                  <DropdownMenuItem
+                                    key={s}
+                                    aria-label={`Set status to ${s}`}
+                                    onClick={async () => {
+                                      const prev = project.status;
+                                      updateStatus(project.id, s as any);
+                                      try {
+                                        await updateProjectStatus(project.id, s as any);
+                                        toast({ title: 'Status updated', description: `${project.name} → ${s}` });
+                                      } catch (e) {
+                                        updateStatus(project.id, prev);
+                                        toast({ title: 'Update failed', description: 'Could not change status', variant: 'destructive' });
+                                      }
+                                    }}
+                                  >
+                                    {s}
+                                  </DropdownMenuItem>
+                                ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          aria-label="Delete project"
+                          title="Delete project"
+                          className="text-rose-600 hover:text-rose-700 border-rose-200 hover:bg-rose-50"
+                          onClick={async () => {
+                            if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
+                            const { rollback } = removeProject(project.id);
+                            try {
+                              await deleteProject(project.id);
+                              toast({ title: 'Project deleted', description: `${project.name} removed` });
+                            } catch (e) {
+                              rollback();
+                              toast({ title: 'Delete failed', description: (e as any)?.message || 'Could not delete project', variant: 'destructive' });
+                            }
+                          }}
+                        >
+                          <Trash className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                     <CardTitle className="text-lg">{project.name}</CardTitle>
                     <CardDescription className="space-y-1">
@@ -303,6 +338,7 @@ const Projects: React.FC = () => {
                       <th className="px-4 py-3 text-left text-sm font-semibold">Value</th>
                       <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
                       <th className="px-4 py-3 text-left text-sm font-semibold">Progress</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -365,6 +401,27 @@ const Projects: React.FC = () => {
                             </div>
                             <span className="text-sm font-medium">{project.progress}%</span>
                           </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-rose-600 hover:text-rose-700 border-rose-200 hover:bg-rose-50 gap-1"
+                            onClick={async () => {
+                              if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
+                              const { rollback } = removeProject(project.id);
+                              try {
+                                await deleteProject(project.id);
+                                toast({ title: 'Project deleted', description: `${project.name} removed` });
+                              } catch (e) {
+                                rollback();
+                                toast({ title: 'Delete failed', description: (e as any)?.message || 'Could not delete project', variant: 'destructive' });
+                              }
+                            }}
+                          >
+                            <Trash className="h-3 w-3" />
+                            Delete
+                          </Button>
                         </td>
                       </tr>
                     ))}

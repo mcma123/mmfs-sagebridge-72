@@ -51,18 +51,18 @@ export default function NewProjectForm({ onCreate, onCancel }: { onCreate: (data
     mode: "onChange",
     defaultValues: {
       projectName: "",
-      projectType: undefined as any,
+      projectType: "Facultative" as any,
       clientName: "",
       country: "",
       coverage: "",
       value: undefined as any,
-      currency: undefined as any,
-      startDate: "",
+      currency: "ZAR" as any,
+      startDate: new Date().toISOString().split("T")[0],
       endDate: "",
       status: "Active" as any,
       description: "",
       assignedTeamText: "",
-      priority: undefined as any,
+      priority: "Medium" as any,
     },
   });
 

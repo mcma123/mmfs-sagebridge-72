@@ -9,6 +9,8 @@ import accountingRouter from './routes/accounting';
 import bankingImportRouter from './routes/banking_import';
 import authRouter from './routes/auth';
 import adminUsersRouter from './routes/admin_users';
+import projectsRouter from './routes/projects';
+import tasksRouter from './routes/tasks';
 
 const app = express();
 app.use(cors());
@@ -24,6 +26,13 @@ app.use('/api/v1/administration/users', adminUsersRouter);
 
 app.use('/api/v1/documents', foldersRouter);
 app.use('/api/v1/documents', documentsRouter);
+
+// DMS Projects endpoints
+app.use('/api/v1/dms/projects', projectsRouter);
+
+// DMS Tasks endpoints
+app.use('/api/v1/dms/tasks', tasksRouter);
+
 // Mirror routes for Accounting module under a separate base path
 app.use('/api/v1/accounting/documents', foldersRouter);
 app.use('/api/v1/accounting/documents', documentsRouter);

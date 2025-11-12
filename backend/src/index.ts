@@ -55,7 +55,8 @@ const distPath = path.join(__dirname, '../../dist');
 app.use(express.static(distPath));
 
 // Catch-all route for client-side routing (must be last)
-app.get('/*splat', (req, res) => {
+// Do NOT intercept API routes
+app.get(/^\/(?!api\/).*/, (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 

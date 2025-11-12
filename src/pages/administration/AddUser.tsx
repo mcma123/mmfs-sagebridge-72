@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,25 +16,48 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/components/ui/use-toast';
+import { createUser, updateUser, type CreateUserData, type UpdateUserData } from '@/lib/api/users';
 
-const userSchema = z.object({
+// Schema for creating a new user (password required)
+const createUserSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   email: z.string().email('Invalid email address'),
   role: z.enum(['admin', 'accountant', 'editor', 'viewer']),
-  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
-  confirmPassword: z.string().optional(),
-}).refine((data) => (data.password || '') === (data.confirmPassword || ''), {
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
 });
 
-type UserFormData = z.infer<typeof userSchema>;
+// Schema for editing a user (password optional)
+const editUserSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters'),
+  email: z.string().email('Invalid email address'),
+  role: z.enum(['admin', 'accountant', 'editor', 'viewer']),
+  password: z.string().optional(),
+  confirmPassword: z.string().optional(),
+}).refine((data) => {
+  // If password is provided, it must be at least 8 characters and match confirmation
+  if (data.password && data.password.length > 0) {
+    if (data.password.length < 8) return false;
+    return data.password === data.confirmPassword;
+  }
+  return true;
+}, {
+  message: "Password must be at least 8 characters and passwords must match",
+  path: ["confirmPassword"],
+});
+
+type UserFormData = z.infer<typeof createUserSchema>;
 
 const AddUser = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const editUser = (location.state as any)?.editUser as { id: number, name: string, email: string, roles: string[] } | undefined;
   const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const {
     register,
     handleSubmit,
@@ -42,36 +65,67 @@ const AddUser = () => {
     setValue,
     watch,
   } = useForm<UserFormData>({
-    resolver: zodResolver(userSchema),
+    resolver: zodResolver(editUser ? editUserSchema : createUserSchema),
     defaultValues: {
       role: (editUser?.roles?.[0] as any) || 'viewer',
       name: editUser?.name || '',
       email: editUser?.email || '',
+      password: '',
+      confirmPassword: '',
     },
   });
 
   const onSubmit = async (data: UserFormData) => {
+    setIsSubmitting(true);
     try {
-      const token = localStorage.getItem('accessToken');
-      if (!token) throw new Error('Not authenticated');
-      const payload: any = editUser ? { name: data.name, email: data.email, roles: [data.role] } : { name: data.name, email: data.email, password: data.password, roles: [data.role] };
-      const res = await fetch(`/api/v1/administration/users${editUser ? `/${editUser.id}` : ''}`, {
-        method: editUser ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error?.message || 'Request failed');
+      if (editUser) {
+        // Update existing user
+        const updateData: UpdateUserData = {
+          name: data.name,
+          email: data.email,
+          roles: [data.role],
+        };
+        // Only include password if it's provided
+        if (data.password && data.password.length > 0) {
+          updateData.password = data.password;
+        }
+        await updateUser(editUser.id, updateData);
+        toast({
+          title: 'Success',
+          description: 'User updated successfully'
+        });
+      } else {
+        // Create new user
+        const createData: CreateUserData = {
+          name: data.name,
+          email: data.email,
+          password: data.password!,
+          roles: [data.role],
+        };
+        await createUser(createData);
+        toast({
+          title: 'Success',
+          description: 'User has been created successfully'
+        });
       }
-      toast({ title: 'Success', description: editUser ? 'User updated successfully' : 'User has been created successfully' });
       navigate('/administration/users');
     } catch (error: any) {
+      let description = error?.message || 'Failed to process request. Please try again.';
+
+      // Handle specific error codes
+      if (error.code === 'DUPLICATE_EMAIL' || error.status === 409) {
+        description = 'This email address is already in use. Please use a different email.';
+      } else if (error.status === 401 || error.status === 403) {
+        description = 'You do not have permission to perform this action.';
+      }
+
       toast({
         title: 'Error',
-        description: error?.message || 'Failed to process request. Please try again.',
+        description,
         variant: 'destructive',
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -157,14 +211,19 @@ const AddUser = () => {
 
             {/* Password Field */}
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">
+                Password {editUser && <span className="text-gray-500 font-normal text-xs">(optional)</span>}
+              </Label>
               <Input
                 id="password"
                 type="password"
                 {...register('password')}
-                placeholder="Enter password"
+                placeholder={editUser ? "Leave blank to keep current password" : "Enter password"}
                 className={errors.password ? 'border-red-500' : ''}
               />
+              {editUser && !errors.password && (
+                <p className="text-sm text-gray-500">Leave blank to keep the current password</p>
+              )}
               {errors.password && (
                 <p className="text-sm text-red-500">{errors.password.message}</p>
               )}
@@ -192,11 +251,16 @@ const AddUser = () => {
               type="button"
               variant="outline"
               onClick={() => navigate('/administration/users')}
+              disabled={isSubmitting}
             >
               Cancel
             </Button>
-            <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
-              {editUser ? 'Update User' : 'Create User'}
+            <Button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Processing...' : (editUser ? 'Update User' : 'Create User')}
             </Button>
           </div>
         </form>

@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ProjectsProvider } from "@/lib/store/projects";
+import { TasksProvider } from "@/lib/store/tasks";
 
 // Page imports
 import Landing from "./pages/Landing";
@@ -69,7 +70,8 @@ const queryClient = new QueryClient();
 const App = () => (
   <ThemeProvider>
     <ProjectsProvider>
-      <QueryClientProvider client={queryClient}>
+      <TasksProvider>
+        <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -140,6 +142,7 @@ const App = () => (
           </BrowserRouter>
         </TooltipProvider>
       </QueryClientProvider>
+      </TasksProvider>
     </ProjectsProvider>
   </ThemeProvider>
 );
