@@ -133,14 +133,19 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed }) => {
           "space-y-1",
           collapsed ? "px-2" : "px-3"
         )}>
-          <Link to="/help" className={cn(
-            "flex items-center h-10 rounded-md transition-all duration-200",
-            "text-[hsl(var(--sidebar-foreground))]/70 hover:bg-[hsl(var(--sidebar-accent))]/50 hover:text-[hsl(var(--sidebar-foreground))]",
-            collapsed ? "justify-center px-0" : "px-3"
-          )}>
+          <a
+            href="https://wa.me/27697906374"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              "flex items-center h-10 rounded-md transition-all duration-200",
+              "text-[hsl(var(--sidebar-foreground))]/70 hover:bg-[hsl(var(--sidebar-accent))]/50 hover:text-[hsl(var(--sidebar-foreground))]",
+              collapsed ? "justify-center px-0" : "px-3"
+            )}
+          >
             <HelpCircle className={cn("h-5 w-5", collapsed ? "" : "mr-3")} />
             {!collapsed && <span>Help & Support</span>}
-          </Link>
+          </a>
           
           <button
             onClick={handleLogout}

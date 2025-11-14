@@ -340,33 +340,249 @@ router.post('/journals/:id/void', authorize(['admin','accountant']), requireSupa
   } catch (err) { next(err); }
 });
 
-// Delete journal (only draft/reviewed)
-router.delete('/journals/:id', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+// Delete journal (only draft/reviewed OR unpaid notes)
+router.delete('/journals/:id', authorize(['admin']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const journalId = Number(req.params.id);
     if (!journalId) throw { status: 400, code: 'INVALID_ID', message: 'valid journal id required' };
 
-    const lookup = await req.pg.query('SELECT status FROM accounting.journals WHERE id = $1', [journalId]);
+    const lookup = await req.pg.query('SELECT status, reference, payment_status FROM accounting.journals WHERE id = $1', [journalId]);
     const journal = lookup.rows?.[0];
     if (!journal) {
       throw { status: 404, code: 'NOT_FOUND', message: 'Journal not found' };
     }
 
-    if (journal.status === 'posted') {
+    // Allow deletion of draft/reviewed journals OR unpaid notes (DN-/CN-)
+    const isNote = journal.reference && (journal.reference.startsWith('DN-') || journal.reference.startsWith('CN-'));
+    const canDelete = (journal.status !== 'posted') || (isNote && journal.payment_status === 'unpaid');
+
+    if (!canDelete) {
       throw {
         status: 409,
-        code: 'POSTED_CANNOT_DELETE',
-        message: 'Posted journals must be voided instead of deleted.',
+        code: 'CANNOT_DELETE',
+        message: 'Posted journals must be voided instead of deleted. Notes can only be deleted if unpaid.',
       };
     }
 
-    await req.pg.query('DELETE FROM accounting.journal_lines WHERE journal_id = $1', [journalId]);
-    await req.pg.query('DELETE FROM accounting.journals WHERE id = $1', [journalId]);
+    const deletedBy = Number(req.headers['x-user-id']) || null;
+    const { data, error } = await req.db.rpc('fn_delete_journal', {
+      p_journal_id: journalId,
+      p_deleted_by: deletedBy
+    });
+
+    if (error) {
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
 
     res.status(204).send();
   } catch (err) {
     next(err);
   }
+});
+
+// ============================================================================
+// DEBIT/CREDIT NOTE ACTIONS
+// ============================================================================
+
+// Mark debit note as paid (creates payment journal)
+router.post('/journals/:id/mark-paid', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const { bank_account_id, payment_date, notes } = req.body || {};
+
+    if (!bank_account_id || !payment_date) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'bank_account_id and payment_date required' };
+    }
+
+    const createdBy = Number(req.headers['x-user-id']) || null;
+    const { data, error } = await req.db.rpc('fn_mark_note_paid', {
+      p_journal_id: Number(id),
+      p_bank_account_id: bank_account_id,
+      p_payment_date: payment_date,
+      p_created_by: createdBy,
+      p_notes: notes || null
+    });
+
+    if (error) {
+      // Map known DB errors to 400
+      if (error.message && (error.message.includes('not found') || error.message.includes('already paid') || error.message.includes('voided'))) {
+        throw { status: 400, code: 'INVALID_OPERATION', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
+
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Record partial payment for debit note
+router.post('/journals/:id/partial-payment', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const { amount, bank_account_id, payment_date, notes } = req.body || {};
+
+    if (!amount || !bank_account_id || !payment_date) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'amount, bank_account_id, and payment_date required' };
+    }
+
+    const createdBy = Number(req.headers['x-user-id']) || null;
+    const { data, error } = await req.db.rpc('fn_record_partial_payment', {
+      p_journal_id: Number(id),
+      p_amount: amount,
+      p_bank_account_id: bank_account_id,
+      p_payment_date: payment_date,
+      p_created_by: createdBy,
+      p_notes: notes || null
+    });
+
+    if (error) {
+      if (error.message && (error.message.includes('not found') || error.message.includes('voided') || error.message.includes('exceeds'))) {
+        throw { status: 400, code: 'INVALID_OPERATION', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
+
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Reconcile payment for debit note
+router.post('/journals/:id/reconcile', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const createdBy = Number(req.headers['x-user-id']) || null;
+
+    const { data, error } = await req.db.rpc('fn_reconcile_payment', {
+      p_journal_id: Number(id),
+      p_created_by: createdBy
+    });
+
+    if (error) {
+      if (error.message && (error.message.includes('not found') || error.message.includes('must be paid') || error.message.includes('already reconciled'))) {
+        throw { status: 400, code: 'INVALID_OPERATION', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
+
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Apply credit note to debit note
+router.post('/journals/:id/apply-credit', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params; // credit note id
+    const { debit_note_id, amount, applied_date, notes } = req.body || {};
+
+    if (!debit_note_id) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'debit_note_id required' };
+    }
+
+    const createdBy = Number(req.headers['x-user-id']) || null;
+
+    // If amount not provided, use full credit note amount
+    let applyAmount = amount;
+    if (!applyAmount) {
+      const creditNoteResult = await req.pg.query(
+        'SELECT COALESCE(SUM(credit), 0) as total FROM accounting.journal_lines WHERE journal_id = $1 AND credit > 0',
+        [Number(id)]
+      );
+      applyAmount = creditNoteResult.rows[0]?.total || 0;
+    }
+
+    const { data, error } = await req.db.rpc('fn_apply_credit_to_debit', {
+      p_credit_note_id: Number(id),
+      p_debit_note_id: debit_note_id,
+      p_amount: applyAmount,
+      p_applied_date: applied_date || new Date().toISOString().split('T')[0],
+      p_created_by: createdBy,
+      p_notes: notes || null
+    });
+
+    if (error) {
+      if (error.message && (error.message.includes('not found') || error.message.includes('not a') || error.message.includes('voided') || error.message.includes('exceeds'))) {
+        throw { status: 400, code: 'INVALID_OPERATION', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
+
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Mark refund paid for credit note
+router.post('/journals/:id/refund-paid', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+    const { bank_account_id, payment_date, notes } = req.body || {};
+
+    if (!bank_account_id || !payment_date) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'bank_account_id and payment_date required' };
+    }
+
+    const createdBy = Number(req.headers['x-user-id']) || null;
+    const { data, error } = await req.db.rpc('fn_mark_refund_paid', {
+      p_journal_id: Number(id),
+      p_bank_account_id: bank_account_id,
+      p_payment_date: payment_date,
+      p_created_by: createdBy,
+      p_notes: notes || null
+    });
+
+    if (error) {
+      if (error.message && (error.message.includes('not found') || error.message.includes('credit note') || error.message.includes('already paid') || error.message.includes('voided'))) {
+        throw { status: 400, code: 'INVALID_OPERATION', message: error.message };
+      }
+      throw { status: 500, code: 'DB_ERROR', message: error.message };
+    }
+
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
+// Export note as PDF
+router.get('/journals/:id/pdf', authorize(['admin','accountant','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+  try {
+    const { id } = req.params;
+
+    // Get journal with lines
+    const journal = await req.db
+      .from('accounting_journals')
+      .select('*')
+      .eq('id', Number(id))
+      .limit(1)
+      .single();
+
+    if (journal.error || !journal.data) {
+      throw { status: 404, code: 'NOT_FOUND', message: 'journal not found' };
+    }
+
+    const lines = await req.db
+      .from('accounting_journal_lines')
+      .select('*')
+      .eq('journal_id', Number(id))
+      .order('id', { ascending: true });
+
+    if (lines.error) {
+      throw { status: 500, code: 'DB_ERROR', message: lines.error.message };
+    }
+
+    // Check if it's a note
+    const isDebitNote = journal.data.reference?.startsWith('DN-');
+    const isCreditNote = journal.data.reference?.startsWith('CN-');
+
+    if (!isDebitNote && !isCreditNote) {
+      throw { status: 400, code: 'INVALID_OPERATION', message: 'Only debit and credit notes can be exported as PDF' };
+    }
+
+    // For now, return JSON (PDF generation will be implemented in Phase 3)
+    // TODO: Implement PDF generation with pdfkit
+    res.json({
+      message: 'PDF generation not yet implemented',
+      journal: journal.data,
+      lines: lines.data || []
+    });
+  } catch (err) { next(err); }
 });
 
 // Ledger query (with optional filters and pagination)
@@ -1134,5 +1350,334 @@ router.get('/health', authorize(['admin','accountant','viewer']), async (req: an
     });
   }
 });
+
+// ============================================================================
+// PAYMENT RECONCILIATION ENDPOINTS
+// ============================================================================
+
+// Get outstanding receivables (unpaid/partial debit notes)
+router.get('/outstanding-items', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const result = await req.pg.query(`
+      SELECT * FROM accounting.vw_outstanding_receivables
+      ORDER BY journal_date ASC
+    `);
+    res.json({ items: result.rows });
+  } catch (err) { next(err); }
+});
+
+// Get available credit notes
+router.get('/available-credits', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const result = await req.pg.query(`
+      SELECT * FROM accounting.vw_available_credits
+      ORDER BY journal_date ASC
+    `);
+    res.json({ items: result.rows });
+  } catch (err) { next(err); }
+});
+
+// Get unallocated bank transactions
+router.get('/bank-transactions', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const result = await req.pg.query(`
+      SELECT * FROM accounting.vw_unallocated_payments
+      ORDER BY transaction_date DESC
+    `);
+    res.json({ items: result.rows });
+  } catch (err) { next(err); }
+});
+
+// Manual entry of bank transaction
+router.post('/bank-transactions', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { transaction_date, reference, description, amount, entity_name, bank_account_id, notes } = req.body || {};
+
+    if (!transaction_date || !amount) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'transaction_date and amount are required' };
+    }
+
+    const userId = (req as any).userId || null;
+
+    const result = await req.pg.query(`
+      INSERT INTO accounting.bank_transactions
+        (transaction_date, reference, description, amount, entity_name, bank_account_id, notes, created_by, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'unallocated')
+      RETURNING *
+    `, [transaction_date, reference, description, amount, entity_name, bank_account_id, notes, userId]);
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) { next(err); }
+});
+
+// Import CSV bank statement
+router.post('/bank-transactions/import', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { transactions, description } = req.body || {};
+
+    if (!Array.isArray(transactions) || transactions.length === 0) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'transactions array is required' };
+    }
+
+    const userId = (req as any).userId || null;
+    const client = await req.pg.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // Create reconciliation batch
+      const batchResult = await client.query(`
+        INSERT INTO accounting.reconciliation_batches
+          (batch_date, description, total_transactions, total_amount, created_by, status)
+        VALUES (CURRENT_DATE, $1, $2, $3, $4, 'in_progress')
+        RETURNING id
+      `, [description || 'Bank statement import', transactions.length, transactions.reduce((sum, t) => sum + Number(t.amount), 0), userId]);
+
+      const batchId = batchResult.rows[0].id;
+
+      // Insert all transactions
+      const insertPromises = transactions.map((t: any) =>
+        client.query(`
+          INSERT INTO accounting.bank_transactions
+            (transaction_date, reference, description, amount, entity_name, bank_account_id, import_batch_id, created_by, status)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'unallocated')
+        `, [t.transaction_date || t.date, t.reference, t.description, t.amount, t.entity_name, t.bank_account_id, batchId, userId])
+      );
+
+      await Promise.all(insertPromises);
+
+      await client.query('COMMIT');
+
+      res.status(201).json({
+        batch_id: batchId,
+        imported_count: transactions.length,
+        message: `Successfully imported ${transactions.length} transactions`
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) { next(err); }
+});
+
+// Suggest matches for a bank transaction
+router.post('/reconciliation/suggest-matches', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+  try {
+    const { bank_transaction_id } = req.body || {};
+
+    if (!bank_transaction_id) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'bank_transaction_id is required' };
+    }
+
+    // Get the bank transaction
+    const btResult = await req.pg.query(`
+      SELECT * FROM accounting.bank_transactions WHERE id = $1
+    `, [bank_transaction_id]);
+
+    if (btResult.rows.length === 0) {
+      throw { status: 404, code: 'NOT_FOUND', message: 'Bank transaction not found' };
+    }
+
+    const bankTx = btResult.rows[0];
+    const amount = Math.abs(Number(bankTx.amount));
+    const entityName = bankTx.entity_name || '';
+    const reference = bankTx.reference || '';
+    const txDate = new Date(bankTx.transaction_date);
+
+    // Query outstanding items
+    const outstandingResult = await req.pg.query(`
+      SELECT
+        journal_id,
+        reference,
+        journal_date,
+        description,
+        entity_name,
+        outstanding_amount,
+        payment_status,
+        days_outstanding
+      FROM accounting.vw_outstanding_receivables
+    `);
+
+    // Calculate match scores for each outstanding item
+    const matches = outstandingResult.rows.map((item: any) => {
+      let score = 0;
+      const factors: string[] = [];
+
+      // 1. Exact Amount Match (40 points)
+      const itemAmount = Math.abs(Number(item.outstanding_amount));
+      if (Math.abs(amount - itemAmount) < 0.01) {
+        score += 40;
+        factors.push('exact_amount');
+      } else if (Math.abs(amount - itemAmount) < itemAmount * 0.05) {
+        // Within 5% tolerance
+        score += 20;
+        factors.push('close_amount');
+      }
+
+      // 2. Entity Name Similarity (30 points)
+      if (entityName && item.entity_name) {
+        const similarity = calculateStringSimilarity(entityName.toLowerCase(), item.entity_name.toLowerCase());
+        const entityScore = Math.round((similarity / 100) * 30);
+        score += entityScore;
+        if (entityScore > 20) factors.push('entity_match');
+      }
+
+      // 3. Reference Number Match (20 points)
+      if (reference && item.reference) {
+        if (reference.includes(item.reference) || item.reference.includes(reference)) {
+          score += 20;
+          factors.push('reference_match');
+        } else if (extractNumbers(reference) === extractNumbers(item.reference)) {
+          score += 10;
+          factors.push('reference_partial');
+        }
+      }
+
+      // 4. Date Proximity (10 points) - ±7 days window
+      const daysDiff = Math.abs((txDate.getTime() - new Date(item.journal_date).getTime()) / (1000 * 60 * 60 * 24));
+      if (daysDiff <= 7) {
+        const dateScore = Math.round((1 - daysDiff / 7) * 10);
+        score += dateScore;
+        if (dateScore > 5) factors.push('date_proximity');
+      }
+
+      return {
+        journal_id: item.journal_id,
+        reference: item.reference,
+        journal_date: item.journal_date,
+        description: item.description,
+        entity_name: item.entity_name,
+        outstanding_amount: item.outstanding_amount,
+        payment_status: item.payment_status,
+        days_outstanding: item.days_outstanding,
+        match_score: score,
+        match_factors: factors,
+        confidence: score >= 80 ? 'high' : score >= 50 ? 'medium' : 'low'
+      };
+    });
+
+    // Sort by score descending and return top 10
+    const sortedMatches = matches
+      .filter(m => m.match_score > 0)
+      .sort((a, b) => b.match_score - a.match_score)
+      .slice(0, 10);
+
+    res.json({ matches: sortedMatches });
+  } catch (err) { next(err); }
+});
+
+// Apply match(es) - allocate payment to journal(s)
+router.post('/reconciliation/apply-match', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+  try {
+    const { bank_transaction_id, allocations } = req.body || {};
+
+    if (!bank_transaction_id || !Array.isArray(allocations) || allocations.length === 0) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'bank_transaction_id and allocations array are required' };
+    }
+
+    const userId = (req as any).userId || null;
+    const client = await req.pg.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // Get bank transaction
+      const btResult = await client.query('SELECT * FROM accounting.bank_transactions WHERE id = $1', [bank_transaction_id]);
+      if (btResult.rows.length === 0) {
+        throw { status: 404, code: 'NOT_FOUND', message: 'Bank transaction not found' };
+      }
+      const bankTx = btResult.rows[0];
+
+      // Validate total allocation equals bank transaction amount
+      const totalAllocated = allocations.reduce((sum, a) => sum + Number(a.amount), 0);
+      if (Math.abs(totalAllocated - Math.abs(Number(bankTx.amount))) > 0.01) {
+        throw { status: 400, code: 'INVALID_ALLOCATION', message: 'Total allocated amount must equal bank transaction amount' };
+      }
+
+      // Process each allocation
+      for (const alloc of allocations) {
+        const { journal_id, amount, match_score, match_type } = alloc;
+
+        // Insert payment allocation
+        await client.query(`
+          INSERT INTO accounting.payment_allocations
+            (bank_transaction_id, journal_id, allocated_amount, match_score, match_type, created_by)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [bank_transaction_id, journal_id, amount, match_score || null, match_type || 'manual', userId]);
+
+        // Get journal info
+        const journalResult = await client.query(`
+          SELECT reference, payment_status, paid_amount,
+                 (SELECT COALESCE(SUM(debit), 0) FROM accounting.journal_lines WHERE journal_id = $1) as total_amount
+          FROM accounting.journals WHERE id = $1
+        `, [journal_id]);
+
+        if (journalResult.rows.length === 0) continue;
+
+        const journal = journalResult.rows[0];
+        const newPaidAmount = Number(journal.paid_amount || 0) + Number(amount);
+        const totalAmount = Number(journal.total_amount);
+        const isFullyPaid = Math.abs(newPaidAmount - totalAmount) < 0.01;
+
+        // Call appropriate payment function
+        if (isFullyPaid) {
+          await client.query(`
+            SELECT accounting.fn_mark_note_paid($1, NULL, $2, $3)
+          `, [journal_id, bankTx.transaction_date, userId]);
+        } else {
+          await client.query(`
+            SELECT accounting.fn_record_partial_payment($1, $2, NULL, $3, $4)
+          `, [journal_id, amount, bankTx.transaction_date, userId]);
+        }
+
+        // Update received_at timestamp
+        await client.query(`
+          UPDATE accounting.journals
+          SET received_at = $2
+          WHERE id = $1 AND received_at IS NULL
+        `, [journal_id, bankTx.transaction_date]);
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: `Successfully allocated payment to ${allocations.length} journal(s)`
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) { next(err); }
+});
+
+// Helper function: Calculate string similarity (simple Levenshtein-based)
+function calculateStringSimilarity(str1: string, str2: string): number {
+  if (!str1 || !str2) return 0;
+  if (str1 === str2) return 100;
+
+  // Simple implementation - check for substring matches
+  const longer = str1.length > str2.length ? str1 : str2;
+  const shorter = str1.length > str2.length ? str2 : str1;
+
+  if (longer.includes(shorter)) return 80;
+
+  // Check word overlap
+  const words1 = str1.split(/\s+/);
+  const words2 = str2.split(/\s+/);
+  const commonWords = words1.filter(w => words2.includes(w)).length;
+  const maxWords = Math.max(words1.length, words2.length);
+
+  return Math.round((commonWords / maxWords) * 100);
+}
+
+// Helper function: Extract numbers from string
+function extractNumbers(str: string): string {
+  return (str.match(/\d+/g) || []).join('');
+}
 
 export default router;

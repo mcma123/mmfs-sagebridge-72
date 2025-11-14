@@ -1,24 +1,23 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FileUp } from 'lucide-react';
-import ImportWizard from '@/components/banking/ImportWizard';
 import { listSessions } from '@/lib/banking/store';
 import type { ImportSession } from '@/lib/banking/models';
 import type { DestinationSelection } from '@/lib/banking/models';
 
 const Banking: React.FC = () => {
-  const [importOpen, setImportOpen] = React.useState(false);
+  const navigate = useNavigate();
   const [sessions, setSessions] = React.useState<ImportSession[]>([]);
-  const [pendingFile, setPendingFile] = React.useState<File | null>(null);
   const [destPrefs, setDestPrefs] = React.useState<DestinationSelection>({ journalEntries: true, trialBalance: false, chartOfAccounts: false });
 
   React.useEffect(() => {
-    // Refresh sessions whenever the wizard opens/closes
+    // Refresh sessions on mount and when returning from wizard
     setSessions(listSessions());
-  }, [importOpen]);
+  }, []);
 
   return (
     <MainLayout>
@@ -34,7 +33,10 @@ const Banking: React.FC = () => {
             <p className="text-muted-foreground">Import CSV statements and commit to accounting destinations</p>
           </div>
           <div>
-            <Button onClick={() => setImportOpen(true)} className="bg-primary-500 hover:bg-primary-600 text-white inline-flex items-center">
+            <Button
+              onClick={() => navigate('/banking/import', { state: { initialDest: destPrefs } })}
+              className="bg-primary-500 hover:bg-primary-600 text-white inline-flex items-center"
+            >
               <FileUp size={16} className="mr-2" />
               Start CSV Import
             </Button>
@@ -56,7 +58,9 @@ const Banking: React.FC = () => {
                   className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-sage-lightGray file:text-muted-foreground hover:file:bg-sage-lightGray/70"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) { setPendingFile(f); setImportOpen(true); }
+                    if (f) {
+                      navigate('/banking/import', { state: { initialFile: f, initialDest: destPrefs } });
+                    }
                   }}
                 />
                 <p className="mt-2 text-xs text-muted-foreground">CSV only for now. Excel support coming soon.</p>
@@ -152,14 +156,6 @@ const Banking: React.FC = () => {
             )}
           </CardContent>
         </Card>
-
-        {/* Wizard */}
-        <ImportWizard
-          open={importOpen}
-          onOpenChange={(o) => { setImportOpen(o); if (!o) setPendingFile(null); setSessions(listSessions()); }}
-          initialFile={pendingFile || null}
-          initialDest={destPrefs}
-        />
       </motion.div>
     </MainLayout>
   );

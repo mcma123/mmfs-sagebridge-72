@@ -225,4 +225,61 @@ router.get('/upcoming-payments', authorize(['admin', 'accountant', 'editor', 'vi
   }
 });
 
+/**
+ * GET /api/v1/dashboard/reconciliation-summary
+ * Payment reconciliation status summary
+ * Returns count and total amount of unallocated bank transactions
+ */
+router.get('/reconciliation-summary', authorize(['admin', 'accountant', 'editor', 'viewer']), async (req: any, res: any, next: any) => {
+  try {
+    // Get unallocated bank transactions
+    const result = await req.pg.query(`
+      SELECT
+        COUNT(*) as unallocated_count,
+        COALESCE(SUM(amount), 0) as unallocated_amount
+      FROM accounting.bank_transactions
+      WHERE status = 'unallocated'
+        AND deleted_at IS NULL
+    `);
+
+    // Get recent reconciliations (last 5)
+    const recentResult = await req.pg.query(`
+      SELECT
+        bt.id,
+        bt.transaction_date,
+        bt.reference,
+        bt.amount,
+        bt.status,
+        COUNT(pa.id) as allocation_count
+      FROM accounting.bank_transactions bt
+      LEFT JOIN accounting.payment_allocations pa ON bt.id = pa.bank_transaction_id
+      WHERE bt.status IN ('matched', 'partially_matched')
+        AND bt.deleted_at IS NULL
+      GROUP BY bt.id, bt.transaction_date, bt.reference, bt.amount, bt.status
+      ORDER BY bt.transaction_date DESC
+      LIMIT 5
+    `);
+
+    const rawData = result.rows[0] || { unallocated_count: 0, unallocated_amount: 0 };
+
+    const data = {
+      unallocated_count: parseInt(rawData.unallocated_count) || 0,
+      unallocated_amount: parseNumeric(rawData.unallocated_amount),
+      recent_reconciliations: recentResult.rows.map((row: any) => ({
+        id: row.id,
+        transaction_date: row.transaction_date,
+        reference: row.reference,
+        amount: parseNumeric(row.amount),
+        status: row.status,
+        allocation_count: parseInt(row.allocation_count) || 0
+      }))
+    };
+
+    res.json(data);
+  } catch (err) {
+    console.error('Error fetching reconciliation summary:', err);
+    next(err);
+  }
+});
+
 export default router;

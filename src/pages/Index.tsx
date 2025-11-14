@@ -5,6 +5,7 @@ import RecentTransactions from '@/components/dashboard/RecentTransactions';
 import UpcomingPayments from '@/components/dashboard/UpcomingPayments';
 import PerformanceChart from '@/components/dashboard/PerformanceChart';
 import MarineInsuranceKPIs from '@/components/dashboard/MarineInsuranceKPIs';
+import { ReconciliationStatus } from '@/components/dashboard/ReconciliationStatus';
 import { FilterBar } from '@/components/dashboard/FilterBar';
 import { useDashboardFilters } from '@/hooks/useDashboardFilters';
 import { motion } from 'framer-motion';
@@ -46,23 +47,7 @@ const Index: React.FC = () => {
               <RecentTransactions filters={filters} />
             </div>
             <div>
-              <div className="bg-primary-100 p-5 rounded-lg border border-primary-200 h-full">
-                <h3 className="font-semibold text-lg text-primary-800">Quick Actions</h3>
-                <div className="space-y-3 mt-4">
-                  <button className="bg-white hover:bg-sage-lightGray text-sage-darkGray w-full py-3 px-4 rounded-lg text-sm font-medium transition-colors text-left shadow-sm">
-                    New Journal Entry
-                  </button>
-                  <button className="bg-white hover:bg-sage-lightGray text-sage-darkGray w-full py-3 px-4 rounded-lg text-sm font-medium transition-colors text-left shadow-sm">
-                    Issue Debit/Credit Note
-                  </button>
-                  <button className="bg-white hover:bg-sage-lightGray text-sage-darkGray w-full py-3 px-4 rounded-lg text-sm font-medium transition-colors text-left shadow-sm">
-                    Reconcile Payments
-                  </button>
-                  <button className="bg-white hover:bg-sage-lightGray text-sage-darkGray w-full py-3 px-4 rounded-lg text-sm font-medium transition-colors text-left shadow-sm">
-                    Marine Insurance Report
-                  </button>
-                </div>
-              </div>
+              <ReconciliationStatus />
             </div>
           </div>
         </div>

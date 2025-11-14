@@ -7,13 +7,27 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, Plus, FileText, TrendingUp, TrendingDown } from 'lucide-react';
+import { Search, Plus, FileText, TrendingUp, TrendingDown, MoreVertical, Download } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { getJournals, getJournal, voidJournal, type JournalDTO, type JournalLineDTO } from '@/lib/api/accounting';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { getJournals, getJournal, getAccounts, voidJournal, type JournalDTO, type JournalLineDTO, type AccountDTO } from '@/lib/api/accounting';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { getRolesFromToken } from '@/lib/api/auth';
 import { useToast } from '@/hooks/use-toast';
+import { MarkPaidDialog } from '@/components/notes/MarkPaidDialog';
+import { PartialPaymentDialog } from '@/components/notes/PartialPaymentDialog';
+import { ReconcilePaymentDialog } from '@/components/notes/ReconcilePaymentDialog';
+import { ApplyCreditDialog } from '@/components/notes/ApplyCreditDialog';
+import { RefundPaidDialog } from '@/components/notes/RefundPaidDialog';
+import { DeleteConfirmDialog } from '@/components/notes/DeleteConfirmDialog';
+import { toast as sonnerToast } from 'sonner';
 
 type NoteRow = {
   id: string; // display id (DN- / CN-)
@@ -26,6 +40,8 @@ type NoteRow = {
   amount?: number;
   currency?: string;
   status: string;
+  paymentStatus?: string;
+  paidAmount?: number;
 };
 
 const DebitCreditNotes = () => {
@@ -33,22 +49,55 @@ const DebitCreditNotes = () => {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [journals, setJournals] = useState<JournalDTO[]>([]);
+  const [accounts, setAccounts] = useState<AccountDTO[]>([]);
   const [selected, setSelected] = useState<{ journal: JournalDTO; lines: JournalLineDTO[] } | null>(null);
   const [confirmVoidId, setConfirmVoidId] = useState<{ id: number; ref: string } | null>(null);
+
+  // Action dialog states
+  const [markPaidDialog, setMarkPaidDialog] = useState<{ open: boolean; journalId?: number; reference?: string; amount?: number }>({ open: false });
+  const [partialPaymentDialog, setPartialPaymentDialog] = useState<{ open: boolean; journalId?: number; reference?: string; amount?: number; paidAmount?: number }>({ open: false });
+  const [reconcileDialog, setReconcileDialog] = useState<{ open: boolean; journalId?: number; reference?: string }>({ open: false });
+  const [applyCreditDialog, setApplyCreditDialog] = useState<{ open: boolean; creditNoteId?: number; reference?: string; amount?: number }>({ open: false });
+  const [refundPaidDialog, setRefundPaidDialog] = useState<{ open: boolean; journalId?: number; reference?: string; amount?: number }>({ open: false });
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; journalId?: number; reference?: string; noteType?: 'debit' | 'credit' }>({ open: false });
+
   const roles = getRolesFromToken();
   const canVoid = roles.includes('admin') || roles.includes('accountant');
+  const canDelete = roles.includes('admin');
+  const canManagePayments = roles.includes('admin') || roles.includes('accountant');
+  const userId = 1; // TODO: Get from auth context
 
   useEffect(() => {
-    (async () => {
-      try {
-        const resp = await getJournals();
-        setJournals(resp.items || []);
-      } catch (err) {
-        // silently ignore for now; in a fuller UX, surface a toast
-        console.error('Failed to load journals', err);
-      }
-    })();
+    loadData();
   }, []);
+
+  const loadData = async () => {
+    try {
+      const [journalsResp, accountsResp] = await Promise.all([
+        getJournals(),
+        getAccounts(),
+      ]);
+      setJournals(journalsResp.items || []);
+      setAccounts(accountsResp.items || []);
+    } catch (err) {
+      console.error('Failed to load data', err);
+      sonnerToast.error('Failed to load data');
+    }
+  };
+
+  // Get bank accounts (Asset type accounts for payment)
+  const bankAccounts = useMemo(() => {
+    return accounts.filter(a => a.type === 'Asset' && a.is_active !== false);
+  }, [accounts]);
+
+  // Get unpaid debit notes for credit application
+  const unpaidDebitNotes = useMemo(() => {
+    return journals.filter(j =>
+      j.reference?.startsWith('DN-') &&
+      !j.voided_at &&
+      (j.payment_status === 'unpaid' || j.payment_status === 'partial')
+    );
+  }, [journals]);
 
   function parseAmountFromDescription(desc?: string | null): { currency?: string; amount?: number; reason?: string; policyRef?: string; entityName?: string } {
     if (!desc) return {};
@@ -64,9 +113,22 @@ const DebitCreditNotes = () => {
     };
   }
 
+  function getPaymentStatusBadge(paymentStatus?: string) {
+    switch (paymentStatus) {
+      case 'paid':
+        return <Badge variant="outline" className="bg-green-50 text-green-700">Paid</Badge>;
+      case 'partial':
+        return <Badge variant="outline" className="bg-yellow-50 text-yellow-700">Partial</Badge>;
+      case 'reconciled':
+        return <Badge variant="outline" className="bg-blue-50 text-blue-700">Reconciled</Badge>;
+      case 'unpaid':
+      default:
+        return <Badge variant="outline" className="bg-gray-50 text-gray-700">Unpaid</Badge>;
+    }
+  }
+
   const debitNotes: NoteRow[] = useMemo(() => {
     return (journals || [])
-      // Hide voided journals from the list to reflect deletion semantics
       .filter(j => !j.voided_at)
       .filter(j => (j.reference || '').startsWith('DN-'))
       .map(j => {
@@ -82,13 +144,14 @@ const DebitCreditNotes = () => {
           amount,
           currency,
           status: j.voided_at ? 'Voided' : 'Posted',
+          paymentStatus: j.payment_status || 'unpaid',
+          paidAmount: j.paid_amount || 0,
         };
       });
   }, [journals]);
 
   const creditNotes: NoteRow[] = useMemo(() => {
     return (journals || [])
-      // Hide voided journals from the list to reflect deletion semantics
       .filter(j => !j.voided_at)
       .filter(j => (j.reference || '').startsWith('CN-'))
       .map(j => {
@@ -104,9 +167,18 @@ const DebitCreditNotes = () => {
           amount,
           currency,
           status: j.voided_at ? 'Voided' : 'Posted',
+          paymentStatus: j.payment_status || 'unpaid',
+          paidAmount: j.paid_amount || 0,
         };
       });
   }, [journals]);
+
+  const handleExportPDF = (journalId: number, reference: string) => {
+    // TODO: Implement PDF export when backend is ready
+    sonnerToast.info('PDF export', {
+      description: 'PDF generation is not yet implemented',
+    });
+  };
 
   return (
     <MainLayout>
@@ -128,7 +200,7 @@ const DebitCreditNotes = () => {
             </Button>
           </div>
         </div>
-        
+
         <Tabs defaultValue="debit" className="w-full">
           <TabsList>
             <TabsTrigger value="debit">
@@ -140,7 +212,7 @@ const DebitCreditNotes = () => {
               Credit Notes
             </TabsTrigger>
           </TabsList>
-          
+
           {/* Debit Notes Tab */}
           <TabsContent value="debit" className="space-y-4">
             <Card>
@@ -164,12 +236,11 @@ const DebitCreditNotes = () => {
                     <TableRow>
                       <TableHead>DN Number</TableHead>
                       <TableHead>Date</TableHead>
-                      <TableHead>Entity Type</TableHead>
                       <TableHead>Entity Name</TableHead>
                       <TableHead>Policy Ref</TableHead>
                       <TableHead>Reason</TableHead>
                       <TableHead>Amount</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>Payment Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -178,50 +249,89 @@ const DebitCreditNotes = () => {
                       <TableRow key={note.id}>
                         <TableCell className="font-medium">{note.id}</TableCell>
                         <TableCell>{note.date}</TableCell>
-                        <TableCell>{note.entityType}</TableCell>
                         <TableCell>{note.entityName}</TableCell>
                         <TableCell>{note.policyRef}</TableCell>
                         <TableCell>{note.reason}</TableCell>
                         <TableCell className="text-red-600">
-                          {note.currency || '-'} {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
+                          {note.currency || 'R'} {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
+                          {note.paidAmount > 0 && (
+                            <div className="text-xs text-green-600 mt-0.5">
+                              Paid: R{note.paidAmount.toFixed(2)}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant="outline" 
-                            className={
-                              note.status === 'Applied' 
-                                ? 'bg-green-50 text-green-700' 
-                                : 'bg-blue-50 text-blue-700'
-                            }
-                          >
-                            {note.status}
-                          </Badge>
+                          {getPaymentStatusBadge(note.paymentStatus)}
                         </TableCell>
-                        <TableCell className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={async () => {
-                              // Open the modal immediately with a lightweight placeholder
-                              setSelected({
-                                journal: { id: note.journalId, date: note.date, reference: note.id, description: 'Loading…' },
-                                lines: [],
-                              });
-                              try {
-                                const resp = await getJournal(note.journalId);
-                                setSelected(resp);
-                              } catch (err: any) {
-                                console.error('Failed to load journal', err);
-                                toast({ title: 'Could not load', description: 'Failed to fetch journal details.', variant: 'destructive' });
-                                setSelected(null);
-                              }
-                            }}
-                          >
-                            View
-                          </Button>
-                          {canVoid && note.status !== 'Voided' && (
-                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })}>Void</Button>
-                          )}
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                setSelected({
+                                  journal: { id: note.journalId, date: note.date, reference: note.id, description: 'Loading…' },
+                                  lines: [],
+                                });
+                                try {
+                                  const resp = await getJournal(note.journalId);
+                                  setSelected(resp);
+                                } catch (err: any) {
+                                  console.error('Failed to load journal', err);
+                                  toast({ title: 'Could not load', description: 'Failed to fetch journal details.', variant: 'destructive' });
+                                  setSelected(null);
+                                }
+                              }}
+                            >
+                              View
+                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {canManagePayments && note.paymentStatus !== 'paid' && note.paymentStatus !== 'reconciled' && (
+                                  <>
+                                    <DropdownMenuItem onClick={() => setMarkPaidDialog({ open: true, journalId: note.journalId, reference: note.id, amount: note.amount })}>
+                                      Mark as Paid
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setPartialPaymentDialog({ open: true, journalId: note.journalId, reference: note.id, amount: note.amount, paidAmount: note.paidAmount })}>
+                                      Record Partial Payment
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                {canManagePayments && (note.paymentStatus === 'paid' || note.paymentStatus === 'partial') && note.paymentStatus !== 'reconciled' && (
+                                  <DropdownMenuItem onClick={() => setReconcileDialog({ open: true, journalId: note.journalId, reference: note.id })}>
+                                    Reconcile Payment
+                                  </DropdownMenuItem>
+                                )}
+                                {note.paymentStatus === 'unpaid' || note.paymentStatus === 'partial' ? (
+                                  <DropdownMenuItem onClick={() => navigate('/payment-reconciliation')}>
+                                    View in Reconciliation
+                                  </DropdownMenuItem>
+                                ) : null}
+                                <DropdownMenuItem onClick={() => handleExportPDF(note.journalId, note.id)}>
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Export PDF
+                                </DropdownMenuItem>
+                                {canVoid && note.status !== 'Voided' && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })} className="text-orange-600">
+                                      Void
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                {canDelete && note.paymentStatus === 'unpaid' && (
+                                  <DropdownMenuItem onClick={() => setDeleteDialog({ open: true, journalId: note.journalId, reference: note.id, noteType: 'debit' })} className="text-red-600">
+                                    Delete
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -230,7 +340,7 @@ const DebitCreditNotes = () => {
               </CardContent>
             </Card>
           </TabsContent>
-          
+
           {/* Credit Notes Tab */}
           <TabsContent value="credit" className="space-y-4">
             <Card>
@@ -254,12 +364,11 @@ const DebitCreditNotes = () => {
                     <TableRow>
                       <TableHead>CN Number</TableHead>
                       <TableHead>Date</TableHead>
-                      <TableHead>Entity Type</TableHead>
                       <TableHead>Entity Name</TableHead>
                       <TableHead>Policy Ref</TableHead>
                       <TableHead>Reason</TableHead>
                       <TableHead>Amount</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>Payment Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -268,45 +377,73 @@ const DebitCreditNotes = () => {
                       <TableRow key={note.id}>
                         <TableCell className="font-medium">{note.id}</TableCell>
                         <TableCell>{note.date}</TableCell>
-                        <TableCell>{note.entityType}</TableCell>
                         <TableCell>{note.entityName}</TableCell>
                         <TableCell>{note.policyRef}</TableCell>
                         <TableCell>{note.reason}</TableCell>
                         <TableCell className="text-green-600">
-                          {note.currency || '-'} {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
+                          {note.currency || 'R'} {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
+                          {note.paidAmount > 0 && (
+                            <div className="text-xs text-blue-600 mt-0.5">
+                              Applied: R{note.paidAmount.toFixed(2)}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant="outline" 
-                            className={
-                              note.status === 'Applied' 
-                                ? 'bg-green-50 text-green-700' 
-                                : note.status === 'Draft'
-                                ? 'bg-gray-50 text-gray-700'
-                                : 'bg-blue-50 text-blue-700'
-                            }
-                          >
-                            {note.status}
-                          </Badge>
+                          {getPaymentStatusBadge(note.paymentStatus)}
                         </TableCell>
-                        <TableCell className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={async () => {
-                              try {
-                                const resp = await getJournal(note.journalId);
-                                setSelected(resp);
-                              } catch (err) {
-                                console.error('Failed to load journal', err);
-                              }
-                            }}
-                          >
-                            View
-                          </Button>
-                          {canVoid && note.status !== 'Voided' && (
-                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })}>Void</Button>
-                          )}
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  const resp = await getJournal(note.journalId);
+                                  setSelected(resp);
+                                } catch (err) {
+                                  console.error('Failed to load journal', err);
+                                }
+                              }}
+                            >
+                              View
+                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {canManagePayments && note.paymentStatus !== 'paid' && note.paymentStatus !== 'reconciled' && (
+                                  <DropdownMenuItem onClick={() => setApplyCreditDialog({ open: true, creditNoteId: note.journalId, reference: note.id, amount: note.amount })}>
+                                    Apply Credit to Debit Note
+                                  </DropdownMenuItem>
+                                )}
+                                {canManagePayments && note.paymentStatus !== 'paid' && note.paymentStatus !== 'reconciled' && (
+                                  <DropdownMenuItem onClick={() => setRefundPaidDialog({ open: true, journalId: note.journalId, reference: note.id, amount: note.amount })}>
+                                    Mark Refund Paid
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => handleExportPDF(note.journalId, note.id)}>
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Export PDF
+                                </DropdownMenuItem>
+                                {canVoid && note.status !== 'Voided' && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })} className="text-orange-600">
+                                      Void
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                {canDelete && note.paymentStatus === 'unpaid' && (
+                                  <DropdownMenuItem onClick={() => setDeleteDialog({ open: true, journalId: note.journalId, reference: note.id, noteType: 'credit' })} className="text-red-600">
+                                    Delete
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -317,6 +454,7 @@ const DebitCreditNotes = () => {
           </TabsContent>
         </Tabs>
       </motion.div>
+
       {/* View Journal Modal */}
       <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
         <DialogContent>
@@ -373,8 +511,7 @@ const DebitCreditNotes = () => {
                     await voidJournal(confirmVoidId.id, `Void ${confirmVoidId.ref}`);
                     toast({ title: 'Note voided', description: `${confirmVoidId.ref} has been voided.` });
                     setConfirmVoidId(null);
-                    const resp = await getJournals();
-                    setJournals(resp.items || []);
+                    loadData();
                   } catch (err) {
                     console.error('Failed to void journal', err);
                     toast({ title: 'Void failed', description: 'Could not void the selected note.', variant: 'destructive' });
@@ -387,6 +524,88 @@ const DebitCreditNotes = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Action Dialogs */}
+      {markPaidDialog.journalId && (
+        <MarkPaidDialog
+          open={markPaidDialog.open}
+          onOpenChange={(open) => setMarkPaidDialog({ open })}
+          journalId={markPaidDialog.journalId}
+          journalReference={markPaidDialog.reference || ''}
+          totalAmount={markPaidDialog.amount || 0}
+          bankAccounts={bankAccounts}
+          onSuccess={loadData}
+          userRole={roles[0] as any}
+          userId={userId}
+        />
+      )}
+
+      {partialPaymentDialog.journalId && (
+        <PartialPaymentDialog
+          open={partialPaymentDialog.open}
+          onOpenChange={(open) => setPartialPaymentDialog({ open })}
+          journalId={partialPaymentDialog.journalId}
+          journalReference={partialPaymentDialog.reference || ''}
+          totalAmount={partialPaymentDialog.amount || 0}
+          paidAmount={partialPaymentDialog.paidAmount || 0}
+          bankAccounts={bankAccounts}
+          onSuccess={loadData}
+          userRole={roles[0] as any}
+          userId={userId}
+        />
+      )}
+
+      {reconcileDialog.journalId && (
+        <ReconcilePaymentDialog
+          open={reconcileDialog.open}
+          onOpenChange={(open) => setReconcileDialog({ open })}
+          journalId={reconcileDialog.journalId}
+          journalReference={reconcileDialog.reference || ''}
+          onSuccess={loadData}
+          userRole={roles[0] as any}
+          userId={userId}
+        />
+      )}
+
+      {applyCreditDialog.creditNoteId && (
+        <ApplyCreditDialog
+          open={applyCreditDialog.open}
+          onOpenChange={(open) => setApplyCreditDialog({ open })}
+          creditNoteId={applyCreditDialog.creditNoteId}
+          creditNoteReference={applyCreditDialog.reference || ''}
+          creditNoteAmount={applyCreditDialog.amount || 0}
+          debitNotes={unpaidDebitNotes}
+          onSuccess={loadData}
+          userRole={roles[0] as any}
+          userId={userId}
+        />
+      )}
+
+      {refundPaidDialog.journalId && (
+        <RefundPaidDialog
+          open={refundPaidDialog.open}
+          onOpenChange={(open) => setRefundPaidDialog({ open })}
+          journalId={refundPaidDialog.journalId}
+          journalReference={refundPaidDialog.reference || ''}
+          totalAmount={refundPaidDialog.amount || 0}
+          bankAccounts={bankAccounts}
+          onSuccess={loadData}
+          userRole={roles[0] as any}
+          userId={userId}
+        />
+      )}
+
+      {deleteDialog.journalId && (
+        <DeleteConfirmDialog
+          open={deleteDialog.open}
+          onOpenChange={(open) => setDeleteDialog({ open })}
+          journalId={deleteDialog.journalId}
+          journalReference={deleteDialog.reference || ''}
+          noteType={deleteDialog.noteType || 'debit'}
+          onSuccess={loadData}
+          userRole={roles[0] as any}
+        />
+      )}
     </MainLayout>
   );
 };

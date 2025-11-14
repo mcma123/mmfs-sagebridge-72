@@ -59,6 +59,15 @@ export type AccountDTO = {
   is_active?: boolean;
 };
 
+/**
+ * Journal/Transaction DTO
+ *
+ * Payment Tracking Fields:
+ * - recorded_at: When the transaction was posted/recorded in the system (same as posted_at)
+ * - received_at: When the payment was actually received (set during payment reconciliation)
+ * - payment_status: Current payment status of the transaction
+ * - paid_amount: Total amount paid/allocated so far
+ */
 export type JournalDTO = {
   id: number;
   date: string; // ISO date
@@ -73,6 +82,11 @@ export type JournalDTO = {
   posted_at?: string | null;
   posted_by?: number | null;
   total_amount?: number;
+  // Payment reconciliation fields
+  payment_status?: 'unpaid' | 'partial' | 'paid' | 'reconciled';
+  paid_amount?: number;
+  recorded_at?: string | null; // When transaction was recorded in system
+  received_at?: string | null; // When payment was actually received (from bank reconciliation)
 };
 
 export type JournalLineInput = {
@@ -484,4 +498,386 @@ export async function exportTaxReturn(id: number, role: Role = 'accountant'): Pr
   }
 
   return response.blob();
+}
+
+// ============================================================================
+// DEBIT/CREDIT NOTE ACTIONS
+// ============================================================================
+
+export type MarkPaidRequest = {
+  bank_account_id: number;
+  payment_date: string;
+  notes?: string;
+};
+
+export type MarkPaidResponse = {
+  success: boolean;
+  journal_id: number;
+  payment_journal_id: number;
+  amount: number;
+  payment_reference: string;
+};
+
+export type PartialPaymentRequest = {
+  amount: number;
+  bank_account_id: number;
+  payment_date: string;
+  notes?: string;
+};
+
+export type PartialPaymentResponse = {
+  success: boolean;
+  journal_id: number;
+  payment_journal_id: number;
+  amount: number;
+  total_paid: number;
+  remaining: number;
+  status: string;
+  payment_reference: string;
+};
+
+export type ReconcilePaymentResponse = {
+  success: boolean;
+  journal_id: number;
+  reconciled_at: string;
+};
+
+export type ApplyCreditRequest = {
+  debit_note_id: number;
+  amount?: number;
+  applied_date?: string;
+  notes?: string;
+};
+
+export type ApplyCreditResponse = {
+  success: boolean;
+  credit_note_id: number;
+  debit_note_id: number;
+  application_journal_id: number;
+  amount: number;
+  application_reference: string;
+};
+
+export type MarkRefundPaidRequest = {
+  bank_account_id: number;
+  payment_date: string;
+  notes?: string;
+};
+
+export type MarkRefundPaidResponse = {
+  success: boolean;
+  journal_id: number;
+  payment_journal_id: number;
+  amount: number;
+  payment_reference: string;
+};
+
+// Mark debit note as paid (creates payment journal entry)
+export async function markNotePaid(
+  id: number,
+  payload: MarkPaidRequest,
+  role: Role = 'accountant',
+  userId?: number
+) {
+  return apiFetch<MarkPaidResponse>(
+    `/journals/${id}/mark-paid`,
+    { method: 'POST', body: JSON.stringify(payload) },
+    role,
+    userId
+  );
+}
+
+// Record partial payment for debit note
+export async function recordPartialPayment(
+  id: number,
+  payload: PartialPaymentRequest,
+  role: Role = 'accountant',
+  userId?: number
+) {
+  return apiFetch<PartialPaymentResponse>(
+    `/journals/${id}/partial-payment`,
+    { method: 'POST', body: JSON.stringify(payload) },
+    role,
+    userId
+  );
+}
+
+// Reconcile payment for debit note
+export async function reconcilePayment(
+  id: number,
+  role: Role = 'accountant',
+  userId?: number
+) {
+  return apiFetch<ReconcilePaymentResponse>(
+    `/journals/${id}/reconcile`,
+    { method: 'POST' },
+    role,
+    userId
+  );
+}
+
+// Apply credit note to debit note
+export async function applyCredit(
+  creditNoteId: number,
+  payload: ApplyCreditRequest,
+  role: Role = 'accountant',
+  userId?: number
+) {
+  return apiFetch<ApplyCreditResponse>(
+    `/journals/${creditNoteId}/apply-credit`,
+    { method: 'POST', body: JSON.stringify(payload) },
+    role,
+    userId
+  );
+}
+
+// Mark refund paid for credit note
+export async function markRefundPaid(
+  id: number,
+  payload: MarkRefundPaidRequest,
+  role: Role = 'accountant',
+  userId?: number
+) {
+  return apiFetch<MarkRefundPaidResponse>(
+    `/journals/${id}/refund-paid`,
+    { method: 'POST', body: JSON.stringify(payload) },
+    role,
+    userId
+  );
+}
+
+// Export note as PDF
+export async function exportNotePDF(id: number, role: Role = 'accountant'): Promise<Blob> {
+  const url = `${API_BASE}/journals/${id}/pdf`;
+
+  let token: string | null = null;
+  try {
+    token = getAccessToken();
+  } catch (error) {
+    console.warn('[exportNotePDF] Could not retrieve access token:', error);
+  }
+
+  const headers: Record<string, string> = {
+    'X-Role': role,
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, { method: 'GET', headers });
+
+  if (!response.ok) {
+    let errorMessage = `${response.status} ${response.statusText}`;
+    try {
+      const errorData = await response.json();
+      if (errorData && (errorData.message || errorData.error)) {
+        errorMessage = errorData.message || errorData.error;
+      }
+    } catch {
+      // Ignore
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.blob();
+}
+
+// ============================================================================
+// PAYMENT RECONCILIATION API FUNCTIONS
+// ============================================================================
+
+// Types for reconciliation
+export type OutstandingReceivable = {
+  journal_id: number;
+  reference: string;
+  journal_date: string;
+  description: string;
+  entity_name: string | null;
+  entity_id: number | null;
+  total_amount: number;
+  paid_amount: number;
+  outstanding_amount: number;
+  payment_status: string;
+  recorded_at: string | null;
+  received_at: string | null;
+  days_outstanding: number;
+  aging_bucket: string;
+};
+
+export type AvailableCredit = {
+  journal_id: number;
+  reference: string;
+  journal_date: string;
+  description: string;
+  entity_name: string | null;
+  entity_id: number | null;
+  total_amount: number;
+  applied_amount: number;
+  available_amount: number;
+  payment_status: string;
+};
+
+export type BankTransaction = {
+  id: number;
+  transaction_date: string;
+  reference: string | null;
+  description: string | null;
+  amount: number;
+  entity_name: string | null;
+  matched_amount: number;
+  unallocated_amount: number;
+  status: 'unallocated' | 'matched' | 'partially_matched' | 'ignored';
+  batch_description: string | null;
+  created_at: string;
+};
+
+export type MatchSuggestion = {
+  journal_id: number;
+  reference: string;
+  journal_date: string;
+  description: string;
+  entity_name: string | null;
+  outstanding_amount: number;
+  payment_status: string;
+  days_outstanding: number;
+  match_score: number;
+  match_factors: string[];
+  confidence: 'high' | 'medium' | 'low';
+};
+
+export type PaymentAllocation = {
+  journal_id: number;
+  amount: number;
+  match_score?: number;
+  match_type?: string;
+};
+
+// Get outstanding receivables (unpaid/partial debit notes)
+export async function getOutstandingItems(
+  role: Role = 'accountant',
+  userId?: number
+): Promise<{ items: OutstandingReceivable[] }> {
+  return apiFetch<{ items: OutstandingReceivable[] }>(
+    '/outstanding-items',
+    { method: 'GET' },
+    role,
+    userId
+  );
+}
+
+// Get available credit notes
+export async function getAvailableCredits(
+  role: Role = 'accountant',
+  userId?: number
+): Promise<{ items: AvailableCredit[] }> {
+  return apiFetch<{ items: AvailableCredit[] }>(
+    '/available-credits',
+    { method: 'GET' },
+    role,
+    userId
+  );
+}
+
+// Get unallocated bank transactions
+export async function getBankTransactions(
+  role: Role = 'accountant',
+  userId?: number
+): Promise<{ items: BankTransaction[] }> {
+  return apiFetch<{ items: BankTransaction[] }>(
+    '/bank-transactions',
+    { method: 'GET' },
+    role,
+    userId
+  );
+}
+
+// Manual entry of bank transaction
+export async function createBankTransaction(
+  payload: {
+    transaction_date: string;
+    reference?: string;
+    description?: string;
+    amount: number;
+    entity_name?: string;
+    bank_account_id?: number;
+    notes?: string;
+  },
+  role: Role = 'accountant',
+  userId?: number
+): Promise<BankTransaction> {
+  return apiFetch<BankTransaction>(
+    '/bank-transactions',
+    { method: 'POST', body: JSON.stringify(payload) },
+    role,
+    userId
+  );
+}
+
+// Import CSV bank statement
+export async function importBankStatement(
+  payload: {
+    transactions: Array<{
+      transaction_date?: string;
+      date?: string;
+      reference?: string;
+      description?: string;
+      amount: number;
+      entity_name?: string;
+      bank_account_id?: number;
+    }>;
+    description?: string;
+  },
+  role: Role = 'accountant',
+  userId?: number
+): Promise<{
+  batch_id: number;
+  imported_count: number;
+  message: string;
+}> {
+  return apiFetch<{
+    batch_id: number;
+    imported_count: number;
+    message: string;
+  }>(
+    '/bank-transactions/import',
+    { method: 'POST', body: JSON.stringify(payload) },
+    role,
+    userId
+  );
+}
+
+// Suggest matches for a bank transaction
+export async function suggestMatches(
+  bankTransactionId: number,
+  role: Role = 'accountant',
+  userId?: number
+): Promise<{ matches: MatchSuggestion[] }> {
+  return apiFetch<{ matches: MatchSuggestion[] }>(
+    '/reconciliation/suggest-matches',
+    { method: 'POST', body: JSON.stringify({ bank_transaction_id: bankTransactionId }) },
+    role,
+    userId
+  );
+}
+
+// Apply match(es) - allocate payment to journal(s)
+export async function applyMatch(
+  bankTransactionId: number,
+  allocations: PaymentAllocation[],
+  role: Role = 'accountant',
+  userId?: number
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch<{ success: boolean; message: string }>(
+    '/reconciliation/apply-match',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        bank_transaction_id: bankTransactionId,
+        allocations,
+      }),
+    },
+    role,
+    userId
+  );
 }

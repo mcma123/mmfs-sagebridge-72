@@ -26,7 +26,16 @@ export function decodeJwt(token: string): any | null {
 }
 
 export function getAccessToken(): string | null {
-  return localStorage.getItem('accessToken');
+  let token = localStorage.getItem('accessToken');
+  if (!token) {
+    // Migrate from old key for backward compatibility
+    token = localStorage.getItem('access_token');
+    if (token) {
+      localStorage.setItem('accessToken', token);
+      localStorage.removeItem('access_token');
+    }
+  }
+  return token;
 }
 
 export function getRolesFromToken(): string[] {

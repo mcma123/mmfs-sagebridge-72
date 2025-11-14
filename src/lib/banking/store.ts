@@ -125,6 +125,12 @@ function updateTotals(sessionId: string) {
     if (amt >= 0) debitTotal += amt; else creditTotal += Math.abs(amt);
   }
   const sess = s.sessions[sessionId];
+
+  if (!sess) {
+    console.error(`[store] Session ${sessionId} not found in localStorage during updateTotals`);
+    return;
+  }
+
   sess.totals = { count: rows.length, valid, invalid, duplicate, excluded, debitTotal, creditTotal } as ImportSessionTotals;
   persist();
 }
@@ -196,7 +202,14 @@ export async function stageFile(sessionId: string, file: File, template: ImportM
   });
   s.transactions[sessionId] = rows;
   s.errors[sessionId] = errors;
-  const sess = s.sessions[sessionId]; sess.status = 'staged';
+  const sess = s.sessions[sessionId];
+
+  if (!sess) {
+    console.error(`[store] Session ${sessionId} not found in localStorage during stageFile`);
+    return { rows: rows.length };
+  }
+
+  sess.status = 'staged';
   updateTotals(sessionId);
   s.audit[sessionId].push({ id: nextId('audit'), sessionId, actorId: s.sessions[sessionId].userId, timestamp: new Date().toISOString(), action: 'stage', details: { rows: rows.length } });
   persist();
@@ -245,6 +258,12 @@ export function getSession(sessionId: string): { session: ImportSession; rows: N
 export function setSessionTemplate(sessionId: string, templateId: string) {
   const s = initStore();
   const sess = s.sessions[sessionId];
+
+  if (!sess) {
+    console.error(`[store] Session ${sessionId} not found in localStorage`);
+    return;
+  }
+
   sess.mappingTemplateId = templateId;
   sess.status = 'mapped';
   persist();

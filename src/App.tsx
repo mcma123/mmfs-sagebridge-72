@@ -23,6 +23,7 @@ import ProgressTracker from "./pages/dms/ProgressTracker";
 import Documents from "./pages/dms/Documents";
 import Tasks from "./pages/dms/Tasks";
 import Banking from "./pages/Banking";
+import ImportWizard from "./pages/banking/ImportWizard";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 
@@ -90,6 +91,7 @@ const App = () => (
         <Route path="/notes/credit/new" element={<CreateCreditNote />} />
         <Route path="/payment-reconciliation" element={<PaymentReconciliation />} />
               <Route path="/banking" element={<Banking />} />
+              <Route path="/banking/import" element={<ImportWizard />} />
 
               {/* Reports Routes */}
               <Route path="/reports" element={<Reports />}>

@@ -50,6 +50,8 @@ async function run() {
     '018_dashboard_views.sql',
     '019_dashboard_historical_changes.sql',
     '020_dashboard_filters.sql',
+    '020_notes_actions.sql',
+    '021_payment_reconciliation.sql',
   ];
   console.log('[migrate_app] Running files:', filesToRun.join(', '));
   for (const fname of filesToRun) {

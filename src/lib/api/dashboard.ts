@@ -105,6 +105,27 @@ export interface UpcomingPaymentsResponse {
 }
 
 /**
+ * Recent Reconciliation Item
+ */
+export interface RecentReconciliation {
+  id: number;
+  transaction_date: string;
+  reference: string | null;
+  amount: number;
+  status: 'matched' | 'partially_matched';
+  allocation_count: number;
+}
+
+/**
+ * Reconciliation Summary Response
+ */
+export interface ReconciliationSummary {
+  unallocated_count: number;
+  unallocated_amount: number;
+  recent_reconciliations: RecentReconciliation[];
+}
+
+/**
  * Dashboard Filter Options
  */
 export interface DashboardFilters {
@@ -199,6 +220,20 @@ export const dashboardApi = {
     });
     if (!response.ok) {
       throw new Error(`Failed to fetch upcoming payments: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Fetch payment reconciliation summary
+   * Returns count and total of unallocated payments plus recent reconciliations
+   */
+  getReconciliationSummary: async (): Promise<ReconciliationSummary> => {
+    const response = await fetch(`${API_BASE_URL}/dashboard/reconciliation-summary`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch reconciliation summary: ${response.statusText}`);
     }
     return response.json();
   },
