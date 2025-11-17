@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import MainLayout from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Trash2 } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -35,8 +35,18 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { toast } from '@/hooks/use-toast';
-import { getAccount, updateAccount } from '@/lib/api/accounting';
+import { getAccount, updateAccount, deleteAccount } from '@/lib/api/accounting';
 import type { UpdateAccountRequest, AccountDTO } from '@/lib/api/accounting';
 
 // Define the schema for account form
@@ -70,6 +80,8 @@ const EditAccount = () => {
   const { id } = useParams<{ id: string }>();
   const [loading, setLoading] = useState(true);
   const [account, setAccount] = useState<AccountDTO | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Define form with default values
   const form = useForm<AccountFormValues>({
@@ -158,6 +170,36 @@ const EditAccount = () => {
         description: error.message || 'An error occurred while updating the account. Please try again.',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!id || !account) return;
+
+    try {
+      setDeleting(true);
+
+      // Cascade delete: remove account and all its transactions
+      await deleteAccount(Number(id), 'accountant', true);
+
+      toast({
+        title: 'Account deleted',
+        description: `${account.code} - ${account.name} and all its transactions have been removed.`,
+      });
+
+      navigate('/accounting/chart-of-accounts');
+    } catch (error: any) {
+      console.error('Failed to delete account:', error);
+      toast({
+        title: 'Failed to delete account',
+        description:
+          error.message ||
+          'An error occurred while deleting the account. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeleting(false);
+      setDeleteOpen(false);
     }
   };
 
@@ -400,7 +442,7 @@ const EditAccount = () => {
                 <Separator />
 
                 {/* Form Actions */}
-                <div className="flex justify-end gap-4">
+                <div className="flex justify-between gap-4">
                   <Button
                     type="button"
                     variant="outline"
@@ -408,12 +450,53 @@ const EditAccount = () => {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit">Update Account</Button>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="gap-2"
+                      onClick={() => setDeleteOpen(true)}
+                      disabled={deleting}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete Account
+                    </Button>
+                    <Button type="submit" disabled={deleting}>
+                      Update Account
+                    </Button>
+                  </div>
                 </div>
               </form>
             </Form>
           </CardContent>
         </Card>
+
+        {/* Delete confirmation dialog */}
+        <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete account and all its transactions?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete account{' '}
+                <span className="font-mono font-semibold">
+                  {account.code} - {account.name}
+                </span>{' '}
+                and remove all transactions (journal lines and ledger entries) linked to this account.
+                Historical journals may become unbalanced after this action. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-red-600 hover:bg-red-700"
+                onClick={handleDeleteAccount}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : 'Delete account and transactions'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </motion.div>
     </MainLayout>
   );

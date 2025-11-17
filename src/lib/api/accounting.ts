@@ -276,8 +276,21 @@ export async function updateAccount(id: number, payload: UpdateAccountRequest, r
   return apiFetch<AccountDTO>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }, role);
 }
 
-export async function deleteAccount(id: number, role: Role = 'accountant') {
-  return apiFetch<void>(`/accounts/${id}`, { method: 'DELETE' }, role);
+/**
+ * Delete an account.
+ *
+ * When cascade is true, the backend will also delete all journal_lines and
+ * ledger_entries that reference this account. This is a destructive operation
+ * that may leave historical journals unbalanced and should only be used from
+ * explicit flows such as the Edit Account page.
+ */
+export async function deleteAccount(
+  id: number,
+  role: Role = 'accountant',
+  cascade?: boolean
+) {
+  const qs = cascade ? '?cascade=true' : '';
+  return apiFetch<void>(`/accounts/${id}${qs}`, { method: 'DELETE' }, role);
 }
 
 export async function createJournalDraft(payload: PostJournalRequest, role: Role = 'accountant', userId: number = 1) {

@@ -216,7 +216,7 @@ const AccountDetail = () => {
             <Button
               variant="secondary"
               className="gap-2"
-              onClick={() => toast.info('Edit functionality coming soon')}
+              onClick={() => navigate(`/accounting/account/${id}/edit`)}
             >
               <Edit className="h-4 w-4" />
               Edit Account

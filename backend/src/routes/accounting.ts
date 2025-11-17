@@ -184,26 +184,77 @@ router.patch('/accounts/:id', authorize(['admin','accountant']), requireSupabase
 router.delete('/accounts/:id', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
-
-    // Check if account is referenced by journal lines
-    const refCheck = await req.pg.query(
-      'SELECT COUNT(*)::INT AS cnt FROM accounting.journal_lines WHERE account_id = $1',
-      [Number(id)]
+    const cascade = ['1', 'true', 'yes'].includes(
+      String((req.query.cascade || '')).toLowerCase()
     );
-    const referenced = refCheck.rows?.[0]?.cnt > 0;
 
-    if (referenced) {
-      throw {
-        status: 409,
-        code: 'ACCOUNT_REFERENCED',
-        message: 'Cannot delete account with transaction history. Set to inactive instead.'
-      };
+    // If cascade is not requested, keep the original safety behaviour:
+    // block deletion when the account has any transaction history.
+    if (!cascade) {
+      const refCheck = await req.pg.query(
+        'SELECT COUNT(*)::INT AS cnt FROM accounting.journal_lines WHERE account_id = $1',
+        [Number(id)]
+      );
+      const referenced = refCheck.rows?.[0]?.cnt > 0;
+
+      if (referenced) {
+        throw {
+          status: 409,
+          code: 'ACCOUNT_REFERENCED',
+          message:
+            'Cannot delete account with transaction history. Set to inactive instead or delete with cascade from the Edit Account page.',
+        };
+      }
+
+      await req.pg.query('DELETE FROM accounting.accounts WHERE id = $1', [Number(id)]);
+      return res.status(204).send();
     }
 
-    // Delete the account
-    await req.pg.query('DELETE FROM accounting.accounts WHERE id = $1', [Number(id)]);
+    // Cascade delete path: remove all ledger entries and journal lines that
+    // reference this account, then delete the account itself. This may leave
+    // historical journals unbalanced but ensures this account and its
+    // transactions are fully removed.
+    if (!req.pg) {
+      throw {
+        status: 500,
+        code: 'PG_UNAVAILABLE',
+        message: 'Postgres client not available on request object',
+      };
+    }
+    const client = await req.pg.connect();
+    try {
+      await client.query('BEGIN');
 
-    res.status(204).send();
+      // Delete ledger entries for this account
+      await client.query(
+        'DELETE FROM accounting.ledger_entries WHERE account_id = $1',
+        [Number(id)]
+      );
+
+      // Delete journal lines for this account
+      await client.query(
+        'DELETE FROM accounting.journal_lines WHERE account_id = $1',
+        [Number(id)]
+      );
+
+      // Finally, delete the account itself
+      const result = await client.query(
+        'DELETE FROM accounting.accounts WHERE id = $1 RETURNING id',
+        [Number(id)]
+      );
+
+      if (result.rowCount === 0) {
+        throw { status: 404, code: 'NOT_FOUND', message: 'account not found' };
+      }
+
+      await client.query('COMMIT');
+      return res.status(204).send();
+    } catch (innerErr) {
+      await client.query('ROLLBACK');
+      throw innerErr;
+    } finally {
+      client.release();
+    }
   } catch (err) { next(err); }
 });
 
@@ -1420,7 +1471,14 @@ router.post('/bank-transactions/import', authorize(['admin','accountant']), asyn
     }
 
     const userId = (req as any).userId || null;
-    const client = await req.pg.pool.connect();
+    if (!req.pg) {
+      throw {
+        status: 500,
+        code: 'PG_UNAVAILABLE',
+        message: 'Postgres client not available on request object',
+      };
+    }
+    const client = await req.pg.connect();
 
     try {
       await client.query('BEGIN');
@@ -1578,7 +1636,14 @@ router.post('/reconciliation/apply-match', authorize(['admin','accountant']), as
     }
 
     const userId = (req as any).userId || null;
-    const client = await req.pg.pool.connect();
+    if (!req.pg) {
+      throw {
+        status: 500,
+        code: 'PG_UNAVAILABLE',
+        message: 'Postgres client not available on request object',
+      };
+    }
+    const client = await req.pg.connect();
 
     try {
       await client.query('BEGIN');
