@@ -68,6 +68,18 @@ export function authorize(required: Role | Role[]) {
       : roleRank(effectiveRole) >= roleRank(requiredList[0]);
 
     if (allowed) return next();
+
+    // Log authorization failure for debugging
+    console.error('Authorization failed:', {
+      path: req.path,
+      method: req.method,
+      required: requiredList,
+      provided: effectiveRole,
+      userRoles: roles,
+      hasToken: !!auth,
+      hasXRole: !!req.headers['x-role']
+    });
+
     return res.status(403).json({ error: 'Forbidden', required: requiredList, provided: effectiveRole });
   };
 }

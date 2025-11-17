@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { FileText, FolderKanban, TrendingUp, CheckSquare, LogOut, Menu, X, Sun, Moon } from 'lucide-react';
+import { FileText, FolderKanban, TrendingUp, CheckSquare, LogOut, Menu, X, Sun, Moon, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from 'next-themes';
 
@@ -15,6 +15,7 @@ const DMSLayout: React.FC<DMSLayoutProps> = ({ children }) => {
   const { theme, setTheme } = useTheme();
 
   const menuItems = [
+    { icon: Home, label: 'Dashboard', path: '/dms/dashboard' },
     { icon: FolderKanban, label: 'Projects', path: '/dms/projects' },
     { icon: TrendingUp, label: 'Progress Tracker', path: '/dms/progress' },
     { icon: FileText, label: 'Documents', path: '/dms/documents' },
@@ -83,7 +84,7 @@ const DMSLayout: React.FC<DMSLayoutProps> = ({ children }) => {
       <div className="flex">
         {/* Sidebar */}
         <aside
-          className={`${sidebarOpen ? 'translate-x-0 md:translate-x-0 md:w-64 w-64' : '-translate-x-full md:-translate-x-full md:w-0 w-0'} bg-card text-card-foreground border-r border-border min-h-screen transition-all duration-200`}
+          className={`${sidebarOpen ? 'translate-x-0 md:translate-x-0 md:w-64 w-64' : '-translate-x-full md:-translate-x-full md:w-0 w-0'} bg-card text-card-foreground border-r border-border min-h-screen transition-all duration-200 overflow-hidden`}
         >
           <div className="p-4 hidden md:block">
             <div className="flex items-center gap-3">

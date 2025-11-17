@@ -1558,11 +1558,11 @@ router.post('/reconciliation/suggest-matches', authorize(['admin','accountant','
       };
     });
 
-    // Sort by score descending and return top 10
-    const sortedMatches = matches
-      .filter(m => m.match_score > 0)
-      .sort((a, b) => b.match_score - a.match_score)
-      .slice(0, 10);
+        // Sort by score descending and return top 10
+        const sortedMatches = matches
+          .filter((m: any) => m.match_score > 0)
+          .sort((a: any, b: any) => b.match_score - a.match_score)
+          .slice(0, 10);
 
     res.json({ matches: sortedMatches });
   } catch (err) { next(err); }
@@ -1655,7 +1655,7 @@ router.post('/reconciliation/apply-match', authorize(['admin','accountant']), as
   } catch (err) { next(err); }
 });
 
-// Helper function: Calculate string similarity (simple Levenshtein-based)
+ // Helper function: Calculate string similarity (simple Levenshtein-based)
 function calculateStringSimilarity(str1: string, str2: string): number {
   if (!str1 || !str2) return 0;
   if (str1 === str2) return 100;
@@ -1679,5 +1679,214 @@ function calculateStringSimilarity(str1: string, str2: string): number {
 function extractNumbers(str: string): string {
   return (str.match(/\d+/g) || []).join('');
 }
+
+// ============================================================================
+// PERIOD-END AND YEAR-END CHECKLIST ENDPOINTS
+// ============================================================================
+
+// Get accounting periods (optionally filtered by year)
+router.get(
+  '/periods',
+  authorize(['admin', 'accountant', 'editor', 'viewer']),
+  requireSupabase,
+  async (req: any, res: any, next: any) => {
+    try {
+      const { year } = req.query as any;
+      let q = req.db.from('accounting_periods').select('*');
+
+      if (year) {
+        q = q
+          .gte('period_start', `${year}-01-01`)
+          .lte('period_start', `${year}-12-31`);
+      }
+
+      q = q.order('period_start', { ascending: true });
+      const { data, error } = await q;
+
+      if (error) {
+        throw { status: 500, code: 'DB_ERROR', message: error.message };
+      }
+
+      res.json({ items: data || [] });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Update period status/checklist (soft close only)
+router.patch(
+  '/periods/:id',
+  authorize(['admin', 'accountant']),
+  requireSupabase,
+  async (req: any, res: any, next: any) => {
+    try {
+      const { id } = req.params;
+      const {
+        status,
+        reconciliations_done,
+        journals_done,
+        accounts_done,
+        taxes_done,
+        reports_done,
+      } = req.body || {};
+
+      if (
+        status &&
+        status !== 'Closed' &&
+        status !== 'In Progress' &&
+        status !== 'Future'
+      ) {
+        throw {
+          status: 400,
+          code: 'INVALID_STATUS',
+          message: 'status must be one of Closed, In Progress, Future',
+        };
+      }
+
+      const updates: any = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (status !== undefined) {
+        updates.status = status;
+        if (status === 'Closed') {
+          updates.closed_date = new Date().toISOString();
+          updates.closed_by = Number(req.headers['x-user-id']) || null;
+        }
+      }
+
+      if (reconciliations_done !== undefined) {
+        updates.reconciliations_done = !!reconciliations_done;
+      }
+      if (journals_done !== undefined) {
+        updates.journals_done = !!journals_done;
+      }
+      if (accounts_done !== undefined) {
+        updates.accounts_done = !!accounts_done;
+      }
+      if (taxes_done !== undefined) {
+        updates.taxes_done = !!taxes_done;
+      }
+      if (reports_done !== undefined) {
+        updates.reports_done = !!reports_done;
+      }
+
+      const { error: updateError } = await req.db
+        .from('accounting_periods')
+        .update(updates)
+        .eq('id', Number(id));
+
+      if (updateError) {
+        throw { status: 500, code: 'DB_ERROR', message: updateError.message };
+      }
+
+      const { data, error: fetchError } = await req.db
+        .from('accounting_periods')
+        .select('*')
+        .eq('id', Number(id))
+        .limit(1)
+        .single();
+
+      if (fetchError || !data) {
+        throw { status: 404, code: 'NOT_FOUND', message: 'period not found' };
+      }
+
+      res.json(data);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Get year-end checklist tasks for a fiscal year
+router.get(
+  '/year-end-checklist',
+  authorize(['admin', 'accountant', 'editor', 'viewer']),
+  requireSupabase,
+  async (req: any, res: any, next: any) => {
+    try {
+      const { year } = req.query as any;
+      const fiscalYear =
+        year !== undefined ? Number(year) : new Date().getFullYear();
+
+      const { data, error } = await req.db
+        .from('accounting_year_end_tasks')
+        .select('*')
+        .eq('fiscal_year', fiscalYear)
+        .order('order_index', { ascending: true });
+
+      if (error) {
+        throw { status: 500, code: 'DB_ERROR', message: error.message };
+      }
+
+      res.json({ items: data || [] });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Update year-end checklist task completion
+router.patch(
+  '/year-end-checklist/:id',
+  authorize(['admin', 'accountant']),
+  requireSupabase,
+  async (req: any, res: any, next: any) => {
+    try {
+      const { id } = req.params;
+      const { completed } = req.body || {};
+
+      if (typeof completed !== 'boolean') {
+        throw {
+          status: 400,
+          code: 'INVALID_BODY',
+          message: 'completed (boolean) is required',
+        };
+      }
+
+      const updates: any = {
+        completed,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (completed) {
+        updates.completed_at = new Date().toISOString();
+        updates.completed_by = Number(req.headers['x-user-id']) || null;
+      } else {
+        updates.completed_at = null;
+        updates.completed_by = null;
+      }
+
+      const { error: updateError } = await req.db
+        .from('accounting_year_end_tasks')
+        .update(updates)
+        .eq('id', Number(id));
+
+      if (updateError) {
+        throw { status: 500, code: 'DB_ERROR', message: updateError.message };
+      }
+
+      const { data, error: fetchError } = await req.db
+        .from('accounting_year_end_tasks')
+        .select('*')
+        .eq('id', Number(id))
+        .limit(1)
+        .single();
+
+      if (fetchError || !data) {
+        throw {
+          status: 404,
+          code: 'NOT_FOUND',
+          message: 'year-end task not found',
+        };
+      }
+
+      res.json(data);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export default router;

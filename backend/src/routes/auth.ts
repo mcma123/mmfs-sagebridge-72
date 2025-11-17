@@ -13,20 +13,30 @@ function highestRole(roles: string[]): string {
 function verifyToken(req: any, res: any, next: any) {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'No token provided' } });
+
+    // Try JWT token first
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const secret = process.env.JWT_SECRET || 'dev-secret-change-me';
+
+      try {
+        const decoded = jwt.verify(token, secret) as any;
+        req.user = decoded;
+        return next();
+      } catch (err) {
+        // Token invalid - fall through to X-Role fallback
+      }
     }
 
-    const token = authHeader.substring(7);
-    const secret = process.env.JWT_SECRET || 'dev-secret-change-me';
-
-    try {
-      const decoded = jwt.verify(token, secret) as any;
-      req.user = decoded;
-      next();
-    } catch (err) {
-      return res.status(401).json({ error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
+    // Fallback: Use X-Role header if JWT is missing or invalid
+    const xRole = req.headers['x-role'];
+    if (xRole && ['Admin', 'Editor', 'Viewer'].includes(xRole)) {
+      req.user = { role: xRole };
+      return next();
     }
+
+    // No valid authentication
+    return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'No token or role provided' } });
   } catch (err) {
     next(err);
   }

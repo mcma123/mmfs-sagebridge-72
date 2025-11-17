@@ -1,12 +1,40 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import DMSLayout from '@/components/layout/DMSLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FolderKanban, TrendingUp, FileText, CheckSquare, ArrowRight } from 'lucide-react';
+import { useProjects } from '@/lib/store/projects';
+import { useTasks } from '@/lib/store/tasks';
+import { dmsDashboardApi } from '@/lib/api/dmsDashboard';
 
 const DMSDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { projects } = useProjects();
+  const { tasks } = useTasks();
+
+  // DMS dashboard summary (documents, team members)
+  const {
+    data: summary,
+    isLoading: summaryLoading,
+    error: summaryError,
+  } = useQuery({
+    queryKey: ['dms', 'dashboard', 'summary'],
+    queryFn: dmsDashboardApi.getSummary,
+    staleTime: 2 * 60 * 1000, // 2 minutes
+  });
+
+  // Calculate real statistics from data
+  const activeProjects = projects.filter(p => p.status === 'Active').length;
+  const totalProjects = projects.length;
+  const onTrackProjects = projects.filter(p => p.progress >= 50).length;
+  const onTrackPercent = totalProjects > 0 ? Math.round((onTrackProjects / totalProjects) * 100) : 0;
+  const pendingTasks = tasks.filter(t => t.status !== 'Done').length;
+
+  // Live metrics from backend; fall back to 0 on load/error
+  const totalDocuments = summary?.totalDocuments ?? 0;
+  const teamMembers = summary?.teamMembers ?? 0;
 
   const modules = [
     {
@@ -14,7 +42,7 @@ const DMSDashboard: React.FC = () => {
       description: 'Central hub for all client placements and reinsurance deals',
       icon: FolderKanban,
       route: '/dms/projects',
-      stats: { label: 'Active Projects', value: '3' },
+      stats: { label: 'Active Projects', value: activeProjects.toString() },
       gradient: 'from-primary to-primary/90',
     },
     {
@@ -22,7 +50,7 @@ const DMSDashboard: React.FC = () => {
       description: 'Visual tracking so everyone knows project status at a glance',
       icon: TrendingUp,
       route: '/dms/progress',
-      stats: { label: 'On Track', value: '75%' },
+      stats: { label: 'On Track', value: `${onTrackPercent}%` },
       gradient: 'from-primary to-primary/90',
       featured: true,
     },
@@ -31,7 +59,7 @@ const DMSDashboard: React.FC = () => {
       description: 'Store and organize all files related to each project',
       icon: FileText,
       route: '/dms/documents',
-      stats: { label: 'Total Documents', value: '85' },
+      stats: { label: 'Total Documents', value: totalDocuments.toString() },
       gradient: 'from-primary to-primary/90',
     },
     {
@@ -39,7 +67,7 @@ const DMSDashboard: React.FC = () => {
       description: 'Simple task management linked to projects',
       icon: CheckSquare,
       route: '/dms/tasks',
-      stats: { label: 'Pending Tasks', value: '7' },
+      stats: { label: 'Pending Tasks', value: pendingTasks.toString() },
       gradient: 'from-primary to-primary/90',
     },
   ];
@@ -126,19 +154,19 @@ const DMSDashboard: React.FC = () => {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               <div>
                 <p className="text-primary-foreground/70 text-sm">Total Projects</p>
-                <p className="text-4xl font-bold">12</p>
+                <p className="text-4xl font-bold">{totalProjects}</p>
               </div>
               <div>
                 <p className="text-primary-foreground/70 text-sm">Documents</p>
-                <p className="text-4xl font-bold">85</p>
+                <p className="text-4xl font-bold">{totalDocuments}</p>
               </div>
               <div>
                 <p className="text-primary-foreground/70 text-sm">Active Tasks</p>
-                <p className="text-4xl font-bold">7</p>
+                <p className="text-4xl font-bold">{pendingTasks}</p>
               </div>
               <div>
                 <p className="text-primary-foreground/70 text-sm">Team Members</p>
-                <p className="text-4xl font-bold">5</p>
+                <p className="text-4xl font-bold">{teamMembers}</p>
               </div>
             </div>
           </CardContent>

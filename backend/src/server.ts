@@ -12,6 +12,7 @@ import adminUsersRouter from './routes/admin_users';
 import projectsRouter from './routes/projects';
 import tasksRouter from './routes/tasks';
 import dashboardRouter from './routes/dashboard';
+import dmsDashboardRouter from './routes/dms_dashboard';
 
 const app = express();
 app.use(cors());
@@ -41,8 +42,11 @@ app.use('/api/v1/accounting/documents', documentsRouter);
 // Accounting core endpoints
 app.use('/api/v1/accounting', accountingRouter);
 
-// Dashboard endpoints
+// Dashboard endpoints (Accounting / global)
 app.use('/api/v1/dashboard', dashboardRouter);
+
+// DMS Dashboard endpoints
+app.use('/api/v1/dms/dashboard', dmsDashboardRouter);
 
 // Banking Import endpoints
 app.use('/api/v1/banking/import', bankingImportRouter);

@@ -31,13 +31,13 @@ const Administration = () => {
       title: 'Change Password',
       description: 'Update your account password',
       icon: Key,
-      path: '/administration/password'
+      path: '/administration/change-password'
     },
     {
       title: 'My Account',
       description: 'View and edit your profile',
       icon: User,
-      path: '/administration/account'
+      path: '/administration/my-account'
     }
   ];
 

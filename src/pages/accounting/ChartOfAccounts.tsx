@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import MainLayout from '@/components/layout/MainLayout';
 import { useNavigate } from 'react-router-dom';
@@ -309,32 +309,48 @@ const ChartOfAccounts = () => {
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [accountToDelete, setAccountToDelete] = useState<any | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   // Fetch accounts from API
   const { data: accountsData, isLoading, error, refetch } = useQuery({
     queryKey: ['accounts'],
     queryFn: () => getAccounts('accountant'),
-    onError: (error: any) => {
-      toast({
-        title: 'Error loading accounts',
-        description: error.message || 'Failed to load chart of accounts from database',
-        variant: 'destructive',
-      });
-    },
+  });
+ 
+  // Fetch trial balance data
+  const {
+    data: trialBalanceData,
+    error: trialBalanceError,
+    refetch: refetchTrialBalance,
+  } = useQuery({
+    queryKey: ['trial-balance'],
+    // Pass params as undefined and role as 'accountant' to match getTrialBalance signature
+    queryFn: () => getTrialBalance(undefined, 'accountant'),
   });
 
-  // Fetch trial balance data
-  const { data: trialBalanceData } = useQuery({
-    queryKey: ['trial-balance'],
-    queryFn: () => getTrialBalance('accountant'),
-    onError: (error: any) => {
+  // Surface query errors via toast instead of using onError (for React Query v5 compatibility)
+  useEffect(() => {
+    if (error) {
+      const anyError = error as any;
       toast({
-        title: 'Error loading balances',
-        description: error.message || 'Failed to load account balances',
+        title: 'Error loading accounts',
+        description: anyError?.message || 'Failed to load chart of accounts from database',
         variant: 'destructive',
       });
-    },
-  });
+    }
+  }, [error]);
+
+  useEffect(() => {
+    if (trialBalanceError) {
+      const anyError = trialBalanceError as any;
+      toast({
+        title: 'Error loading balances',
+        description: anyError?.message || 'Failed to load account balances',
+        variant: 'destructive',
+      });
+    }
+  }, [trialBalanceError]);
 
   // Create balance lookup map
   const balanceMap = new Map<number, number>();
@@ -403,6 +419,75 @@ const ChartOfAccounts = () => {
         description: error.message || 'An error occurred while deleting the account.',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedRows.length === 0) return;
+
+    setIsBulkDeleting(true);
+
+    // Capture the accounts corresponding to the current selection
+    const selectedAccounts = accounts.filter(account =>
+      selectedRows.includes(account.id)
+    );
+
+    try {
+      const results = await Promise.allSettled(
+        selectedAccounts.map(account => deleteAccount(account.id, 'accountant'))
+      );
+
+      const deleted: string[] = [];
+      const failed: { name: string; reason: string }[] = [];
+
+      results.forEach((result, index) => {
+        const account = selectedAccounts[index];
+        const name = account?.name ?? `Account ${account?.id ?? ''}`;
+
+        if (result.status === 'fulfilled') {
+          deleted.push(name);
+        } else {
+          const reason =
+            (result.reason && (result.reason.message || String(result.reason))) ||
+            'Unknown error';
+          failed.push({ name, reason });
+        }
+      });
+
+      if (deleted.length > 0) {
+        toast({
+          title: 'Accounts deleted',
+          description: `Deleted ${deleted.length} account${deleted.length > 1 ? 's' : ''}.`,
+        });
+      }
+
+      if (failed.length > 0) {
+        const failedNames = failed.map(f => f.name).join(', ');
+        toast({
+          title: 'Some accounts could not be deleted',
+          description: `Skipped ${failed.length} account${failed.length > 1 ? 's' : ''}: ${failedNames}`,
+          variant: 'destructive',
+        });
+      }
+
+      if (deleted.length > 0) {
+        // Clear selection and refresh data if anything was actually deleted
+        setSelectedRows([]);
+        await refetch();
+        if (refetchTrialBalance) {
+          await refetchTrialBalance();
+        }
+      }
+    } catch (error: any) {
+      console.error('Bulk delete failed', error);
+      toast({
+        title: 'Bulk delete failed',
+        description: error.message || 'An error occurred while deleting the selected accounts.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsBulkDeleting(false);
+      setBulkDeleteOpen(false);
     }
   };
 
@@ -524,7 +609,13 @@ const ChartOfAccounts = () => {
                 <Button variant="ghost" size="sm" className="text-sage-blue hover:bg-sage-blue/10">
                   Export Selected
                 </Button>
-                <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-700">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                  onClick={() => setBulkDeleteOpen(true)}
+                  disabled={isBulkDeleting}
+                >
                   Delete Selected
                 </Button>
               </div>
@@ -624,6 +715,30 @@ const ChartOfAccounts = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Bulk Delete Confirmation Dialog */}
+        <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete selected accounts?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You are about to delete {selectedRows.length} selected account{selectedRows.length !== 1 ? 's' : ''}.
+                Accounts that have transaction history or other protections cannot be deleted and will be skipped.
+                This action cannot be undone for accounts that are deleted.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isBulkDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleBulkDelete}
+                className="bg-red-600 hover:bg-red-700"
+                disabled={isBulkDeleting}
+              >
+                {isBulkDeleting ? 'Deleting...' : 'Delete Selected'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={!!accountToDelete} onOpenChange={(open) => !open && setAccountToDelete(null)}>

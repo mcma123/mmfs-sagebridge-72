@@ -11,7 +11,12 @@ export function setAccountingApiBase(base: string) {
   API_BASE = base || '/api/v1/accounting';
 }
 
-async function apiFetch<T>(path: string, init: RequestInit = {}, role: Role = 'accountant', userId?: number): Promise<T> {
+async function apiFetch<T>(
+  path: string,
+  init: RequestInit = {},
+  role: Role = 'accountant',
+  userId?: number
+): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Role': role,
@@ -25,13 +30,37 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, role: Role = 'a
       ...(init.headers as Record<string, string> | undefined),
     },
   });
+
   const text = await resp.text();
   let data: any = null;
-  try { data = text ? JSON.parse(text) : null; } catch (_) { /* non-json response */ }
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // non-JSON response, leave data as null
+  }
+
   if (!resp.ok) {
-    const message = (data && (data.message || data.error)) || resp.statusText || 'Request failed';
+    let message = resp.statusText || 'Request failed';
+
+    if (data) {
+      // Prefer top-level message if present
+      if (typeof data.message === 'string' && data.message.trim().length > 0) {
+        message = data.message;
+      } else if (data.error) {
+        // Handle error as string or object with message/code
+        if (typeof data.error === 'string') {
+          message = data.error;
+        } else if (typeof data.error.message === 'string' && data.error.message.trim().length > 0) {
+          message = data.error.message;
+        } else if (typeof data.error.code === 'string' && data.error.code.trim().length > 0) {
+          message = data.error.code;
+        }
+      }
+    }
+
     throw new Error(`${resp.status} ${message}`);
   }
+
   return data as T;
 }
 
@@ -288,6 +317,107 @@ export async function getLedger(params: { accountId?: number; start?: string; en
   const q = qs.toString();
   const path = `/ledger${q ? `?${q}` : ''}`;
   return apiFetch<{ items: LedgerEntryDTO[]; total?: number }>(path, { method: 'GET' }, role);
+}
+
+ // ============================================================================
+ // PERIOD-END AND YEAR-END CHECKLIST
+ // ============================================================================
+
+export type PeriodStatus = 'Closed' | 'In Progress' | 'Future';
+
+export type PeriodDTO = {
+  id: number;
+  period_start: string;
+  period_end: string;
+  label: string;
+  status: PeriodStatus;
+  closed_date: string | null;
+  closed_by: number | null;
+  reconciliations_done: boolean;
+  journals_done: boolean;
+  accounts_done: boolean;
+  taxes_done: boolean;
+  reports_done: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type YearEndTaskDTO = {
+  id: number;
+  fiscal_year: number;
+  task: string;
+  critical: boolean;
+  completed: boolean;
+  completed_at: string | null;
+  completed_by: number | null;
+  order_index: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+// Get accounting periods (optionally filtered by year)
+export async function getPeriods(
+  params?: { year?: number },
+  role: Role = 'accountant'
+) {
+  const qs = new URLSearchParams();
+  if (params?.year) {
+    qs.set('year', String(params.year));
+  }
+  const q = qs.toString();
+  const path = `/periods${q ? `?${q}` : ''}`;
+  return apiFetch<{ items: PeriodDTO[] }>(path, { method: 'GET' }, role);
+}
+
+// Update period status/checklist (soft close)
+export async function updatePeriod(
+  id: number,
+  payload: Partial<{
+    status: PeriodStatus;
+    reconciliations_done: boolean;
+    journals_done: boolean;
+    accounts_done: boolean;
+    taxes_done: boolean;
+    reports_done: boolean;
+  }>,
+  role: Role = 'accountant',
+  userId?: number
+) {
+  return apiFetch<PeriodDTO>(
+    `/periods/${id}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+    role,
+    userId
+  );
+}
+
+// Get year-end checklist tasks for a fiscal year
+export async function getYearEndChecklist(
+  params?: { year?: number },
+  role: Role = 'accountant'
+) {
+  const qs = new URLSearchParams();
+  if (params?.year) {
+    qs.set('year', String(params.year));
+  }
+  const q = qs.toString();
+  const path = `/year-end-checklist${q ? `?${q}` : ''}`;
+  return apiFetch<{ items: YearEndTaskDTO[] }>(path, { method: 'GET' }, role);
+}
+
+// Update year-end checklist task completion
+export async function updateYearEndTask(
+  id: number,
+  completed: boolean,
+  role: Role = 'accountant',
+  userId?: number
+) {
+  return apiFetch<YearEndTaskDTO>(
+    `/year-end-checklist/${id}`,
+    { method: 'PATCH', body: JSON.stringify({ completed }) },
+    role,
+    userId
+  );
 }
 
 // ============================================================================

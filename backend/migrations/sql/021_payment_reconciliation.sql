@@ -26,10 +26,10 @@ CREATE TABLE IF NOT EXISTS accounting.bank_transactions (
     CONSTRAINT valid_matched_amount CHECK (ABS(matched_amount) <= ABS(amount))
 );
 
-CREATE INDEX idx_bank_transactions_status ON accounting.bank_transactions(status);
-CREATE INDEX idx_bank_transactions_date ON accounting.bank_transactions(transaction_date);
-CREATE INDEX idx_bank_transactions_entity ON accounting.bank_transactions(entity_name);
-CREATE INDEX idx_bank_transactions_batch ON accounting.bank_transactions(import_batch_id);
+CREATE INDEX IF NOT EXISTS idx_bank_transactions_status ON accounting.bank_transactions(status);
+CREATE INDEX IF NOT EXISTS idx_bank_transactions_date ON accounting.bank_transactions(transaction_date);
+CREATE INDEX IF NOT EXISTS idx_bank_transactions_entity ON accounting.bank_transactions(entity_name);
+CREATE INDEX IF NOT EXISTS idx_bank_transactions_batch ON accounting.bank_transactions(import_batch_id);
 
 COMMENT ON TABLE accounting.bank_transactions IS 'Imported or manually entered bank transactions awaiting reconciliation';
 COMMENT ON COLUMN accounting.bank_transactions.status IS 'unallocated: not matched yet, matched: fully allocated, partially_matched: some allocated, ignored: marked to skip';
@@ -58,8 +58,8 @@ CREATE TABLE IF NOT EXISTS accounting.reconciliation_batches (
     CONSTRAINT valid_matched_count CHECK (matched_count <= total_transactions)
 );
 
-CREATE INDEX idx_reconciliation_batches_status ON accounting.reconciliation_batches(status);
-CREATE INDEX idx_reconciliation_batches_date ON accounting.reconciliation_batches(batch_date);
+CREATE INDEX IF NOT EXISTS idx_reconciliation_batches_status ON accounting.reconciliation_batches(status);
+CREATE INDEX IF NOT EXISTS idx_reconciliation_batches_date ON accounting.reconciliation_batches(batch_date);
 
 COMMENT ON TABLE accounting.reconciliation_batches IS 'Bank statement import and reconciliation session tracking';
 
@@ -82,8 +82,8 @@ CREATE TABLE IF NOT EXISTS accounting.payment_allocations (
     UNIQUE (bank_transaction_id, journal_id)
 );
 
-CREATE INDEX idx_payment_allocations_bank_tx ON accounting.payment_allocations(bank_transaction_id);
-CREATE INDEX idx_payment_allocations_journal ON accounting.payment_allocations(journal_id);
+CREATE INDEX IF NOT EXISTS idx_payment_allocations_bank_tx ON accounting.payment_allocations(bank_transaction_id);
+CREATE INDEX IF NOT EXISTS idx_payment_allocations_journal ON accounting.payment_allocations(journal_id);
 
 COMMENT ON TABLE accounting.payment_allocations IS 'Links bank transactions to accounting records with allocation amounts';
 COMMENT ON COLUMN accounting.payment_allocations.match_score IS 'Confidence score (0-100) from matching algorithm';

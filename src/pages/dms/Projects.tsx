@@ -235,12 +235,12 @@ const Projects: React.FC = () => {
                       </div>
                     </div>
                     <CardTitle className="text-lg">{project.name}</CardTitle>
-                    <CardDescription className="space-y-1">
-                      <div className="flex items-center gap-2">
+                    <CardDescription>
+                      <span className="flex items-center gap-2">
                         <Flag className="h-3 w-3" />
                         <span>{project.country}</span>
-                      </div>
-                      <div className="text-sm">{project.client}</div>
+                      </span>
+                      <span className="block text-sm mt-1">{project.client}</span>
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
