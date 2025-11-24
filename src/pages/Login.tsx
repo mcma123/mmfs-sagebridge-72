@@ -44,7 +44,7 @@ const Login: React.FC = () => {
   };
   
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white via-white to-blue-50 flex flex-col justify-center py-6 sm:py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-b from-white via-white to-blue-50 flex flex-col justify-center py-6 sm:py-12 px-4 sm:px-6 lg:px-8 overflow-y-auto">
       <div className="-mx-4 sm:-mx-6 lg:-mx-8 mb-6 border-b-4 border-[#D4AF37] shadow-sm">
          <img
            src="/banner.png"
