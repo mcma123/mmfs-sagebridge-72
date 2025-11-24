@@ -27,7 +27,7 @@ const DMSLayout: React.FC<DMSLayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex flex-col h-screen bg-background">
       {/* Header */}
       <header className="bg-card text-card-foreground border-b border-border sticky top-0 z-50 shadow-sm">
         <div className="flex items-center justify-between px-4 py-3">
@@ -81,7 +81,7 @@ const DMSLayout: React.FC<DMSLayoutProps> = ({ children }) => {
         </div>
       </header>
 
-      <div className="flex">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Sidebar */}
         <aside
           className={`${sidebarOpen ? 'translate-x-0 md:translate-x-0 md:w-64 w-64' : '-translate-x-full md:-translate-x-full md:w-0 w-0'} bg-card text-card-foreground border-r border-border min-h-screen transition-all duration-200 overflow-hidden`}
@@ -112,7 +112,7 @@ const DMSLayout: React.FC<DMSLayoutProps> = ({ children }) => {
         </aside>
 
         {/* Content */}
-        <main className="flex-1 p-4 md:p-6">
+        <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
           {children}
         </main>
       </div>
