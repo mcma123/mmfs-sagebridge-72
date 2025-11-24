@@ -25,7 +25,7 @@ const Landing: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary via-primary/95 to-primary/90">
+    <div className="min-h-screen bg-gradient-to-br from-primary via-primary/95 to-primary/90 overflow-y-auto">
       <div className="container mx-auto px-6 py-16">
         {/* Header */}
         <motion.div
