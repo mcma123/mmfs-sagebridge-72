@@ -22,6 +22,7 @@ import {
 } from '@/hooks/useDocumentsQuery';
 import { getDocumentUrl, downloadDocument, setDocumentsApiBase } from '@/lib/api/documents';
 import { trackEvent } from '@/lib/telemetry';
+import { collectDroppedFiles } from '@/lib/dnd/collectDroppedFiles';
 
 type Role = 'Admin' | 'Editor' | 'Viewer';
 
@@ -37,6 +38,8 @@ const Documents: React.FC = () => {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedFolderIds, setSelectedFolderIds] = useState<number[]>([]);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([]);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [dragOverFolderId, setDragOverFolderId] = useState<number | null>(null);
 
   // Set API base for documents module
   useEffect(() => {
@@ -166,6 +169,68 @@ const Documents: React.FC = () => {
     setSelectedDocumentIds((prev) =>
       prev.includes(id) ? prev.filter((did) => did !== id) : [...prev, id]
     );
+  }
+
+  function handleGlobalDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!canEdit) return;
+
+    setIsDragActive(true);
+  }
+
+  function handleGlobalDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!canEdit) return;
+
+    if (e.currentTarget === e.target) {
+      setIsDragActive(false);
+      setDragOverFolderId(null);
+    }
+  }
+
+  async function handleGlobalDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    setIsDragActive(false);
+
+    if (!canEdit) {
+      toast.error('You need Editor or Admin role to upload documents.');
+      return;
+    }
+
+    try {
+      const filesWithPath = await collectDroppedFiles(e.dataTransfer);
+
+      if (!filesWithPath || filesWithPath.length === 0) {
+        toast.error('No files found in drop.');
+        return;
+      }
+
+      const targetFolderId = dragOverFolderId ?? currentFolderId;
+
+      trackEvent('document_drag_drop_upload', {
+        module: 'dms',
+        folderId: targetFolderId,
+        fileCount: filesWithPath.length,
+      });
+
+      await uploadFileStructureToFolder(targetFolderId, filesWithPath);
+
+      toast.success(
+        `${filesWithPath.length} file${filesWithPath.length > 1 ? 's' : ''} uploaded successfully`
+      );
+    } catch (error) {
+      console.error('Failed to upload dropped files:', error);
+      toast.error('Failed to upload dropped files. Please try again.');
+    } finally {
+      setDragOverFolderId(null);
+      setIsDragActive(false);
+    }
   }
 
   function navigateToNode(folderId: number) {
@@ -350,6 +415,65 @@ const Documents: React.FC = () => {
     e.target.value = '';
   }
 
+  async function uploadFileStructureToFolder(
+    rootFolderId: number,
+    filesWithPath: { file: File; relativePath: string }[]
+  ) {
+    if (!filesWithPath || filesWithPath.length === 0) return;
+
+    const folderPaths = new Set<string>();
+    const filesByFolder = new Map<string, File[]>();
+
+    for (const { file, relativePath } of filesWithPath) {
+      const folderPath = (relativePath || '').trim();
+
+      if (folderPath) {
+        const pathSegments = folderPath.split('/').filter(Boolean);
+
+        let currentPath = '';
+        for (let i = 0; i < pathSegments.length; i++) {
+          currentPath = currentPath ? `${currentPath}/${pathSegments[i]}` : pathSegments[i];
+          folderPaths.add(currentPath);
+        }
+
+        if (!filesByFolder.has(folderPath)) {
+          filesByFolder.set(folderPath, []);
+        }
+        filesByFolder.get(folderPath)!.push(file);
+      } else {
+        if (!filesByFolder.has('')) {
+          filesByFolder.set('', []);
+        }
+        filesByFolder.get('')!.push(file);
+      }
+    }
+
+    if (filesByFolder.size === 0) return;
+
+    let folderMap: Record<string, number> = { '': rootFolderId };
+
+    if (folderPaths.size > 0) {
+      const { batchCreateFolders } = await import('@/lib/api/documents');
+      const result = await batchCreateFolders(rootFolderId, Array.from(folderPaths), role);
+      folderMap = { ...folderMap, ...result.folderMap };
+    }
+
+    // Note: backend upload middleware is limited to 10 files per request (upload.array('files', 10)),
+    // so we chunk uploads to avoid Multer LIMIT_FILE_COUNT errors that can surface as "Failed to fetch".
+    const CHUNK_SIZE = 10;
+    for (const [folderPath, filesInFolder] of filesByFolder.entries()) {
+      const targetFolderId = folderMap[folderPath] || rootFolderId;
+
+      for (let i = 0; i < filesInFolder.length; i += CHUNK_SIZE) {
+        const chunk = filesInFolder.slice(i, i + CHUNK_SIZE);
+        await uploadFilesMutation.mutateAsync({
+          folderId: targetFolderId,
+          files: chunk,
+        });
+      }
+    }
+  }
+
   async function onFolderSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -361,66 +485,23 @@ const Documents: React.FC = () => {
       fileCount: fileList.length,
     });
 
+    const filesWithPath = fileList.map((file) => {
+      const webkitFile = file as File & { webkitRelativePath?: string };
+      const relativePath = webkitFile.webkitRelativePath || '';
+      let folderPath = '';
+
+      if (relativePath && relativePath.includes('/')) {
+        const segments = relativePath.split('/').filter(Boolean);
+        if (segments.length > 1) {
+          folderPath = segments.slice(0, -1).join('/');
+        }
+      }
+
+      return { file, relativePath: folderPath };
+    });
+
     try {
-      // Extract folder structure from webkitRelativePath
-      const folderPaths = new Set<string>();
-      const filesByFolder = new Map<string, File[]>();
-
-      for (const file of fileList) {
-        const webkitFile = file as File & { webkitRelativePath?: string };
-        const relativePath = webkitFile.webkitRelativePath || file.name;
-        const pathSegments = relativePath.split('/');
-
-        // Skip the root folder name
-        if (pathSegments.length > 1) {
-          // Build folder path (excluding filename)
-          const folderPath = pathSegments.slice(0, -1).join('/');
-
-          // Add all parent paths
-          let currentPath = '';
-          for (let i = 0; i < pathSegments.length - 1; i++) {
-            currentPath = currentPath ? `${currentPath}/${pathSegments[i]}` : pathSegments[i];
-            folderPaths.add(currentPath);
-          }
-
-          // Group files by their folder
-          if (!filesByFolder.has(folderPath)) {
-            filesByFolder.set(folderPath, []);
-          }
-          filesByFolder.get(folderPath)!.push(file);
-        } else {
-          // File in root - add to empty path
-          if (!filesByFolder.has('')) {
-            filesByFolder.set('', []);
-          }
-          filesByFolder.get('')!.push(file);
-        }
-      }
-
-      // Create folders if any exist
-      let folderMap: Record<string, number> = { '': currentFolderId };
-      if (folderPaths.size > 0) {
-        const { batchCreateFolders } = await import('@/lib/api/documents');
-        const result = await batchCreateFolders(currentFolderId, Array.from(folderPaths), role);
-        folderMap = { ...folderMap, ...result.folderMap };
-      }
-
-      // Upload files to their respective folders
-      // Note: backend upload middleware is limited to 10 files per request (upload.array('files', 10)),
-      // so we chunk uploads to avoid Multer LIMIT_FILE_COUNT errors that can surface as "Failed to fetch".
-      const CHUNK_SIZE = 10;
-      for (const [folderPath, filesInFolder] of filesByFolder.entries()) {
-        const targetFolderId = folderMap[folderPath] || currentFolderId;
-
-        for (let i = 0; i < filesInFolder.length; i += CHUNK_SIZE) {
-          const chunk = filesInFolder.slice(i, i + CHUNK_SIZE);
-          await uploadFilesMutation.mutateAsync({
-            folderId: targetFolderId,
-            files: chunk,
-          });
-        }
-      }
-
+      await uploadFileStructureToFolder(currentFolderId, filesWithPath);
       toast.success(`Successfully uploaded folder with ${fileList.length} files`);
     } catch (error) {
       console.error('Failed to upload folder:', error);
@@ -622,7 +703,11 @@ const Documents: React.FC = () => {
                   </div>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent
+                onDragOver={handleGlobalDragOver}
+                onDragLeave={handleGlobalDragLeave}
+                onDrop={handleGlobalDrop}
+              >
                 {/* Loading State */}
                 {isLoading && (
                   <div className="flex items-center justify-center py-12">
@@ -657,14 +742,27 @@ const Documents: React.FC = () => {
                         return (
                           <div
                             key={folder.id}
-                            className={`border border-border rounded-lg p-4 hover:bg-accent cursor-pointer transition-colors ${
-                              selectionMode && isSelected ? 'ring-2 ring-primary/60 bg-primary/5' : ''
-                            }`}
+                            className={`border border-border rounded-lg p-4 hover:bg-accent cursor-pointer transition-colors ${selectionMode && isSelected ? 'ring-2 ring-primary/60 bg-primary/5' : ''
+                              } ${isDragActive && dragOverFolderId === folder.id ? 'ring-2 ring-primary/60 bg-primary/5' : ''}`}
                             onClick={() => {
                               if (selectionMode) {
                                 toggleFolderSelection(folder.id);
                               } else {
                                 navigateToNode(folder.id);
+                              }
+                            }}
+                            onDragOver={(e) => {
+                              if (!canEdit) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDragActive(true);
+                              setDragOverFolderId(folder.id);
+                            }}
+                            onDragLeave={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (dragOverFolderId === folder.id) {
+                                setDragOverFolderId(null);
                               }
                             }}
                           >
@@ -688,14 +786,27 @@ const Documents: React.FC = () => {
                         return (
                           <div
                             key={folder.id}
-                            className={`border border-border rounded-lg p-3 hover:bg-accent cursor-pointer transition-colors flex items-center gap-3 ${
-                              selectionMode && isSelected ? 'ring-2 ring-primary/60 bg-primary/5' : ''
-                            }`}
+                            className={`border border-border rounded-lg p-3 hover:bg-accent cursor-pointer transition-colors flex items-center gap-3 ${selectionMode && isSelected ? 'ring-2 ring-primary/60 bg-primary/5' : ''
+                              } ${isDragActive && dragOverFolderId === folder.id ? 'ring-2 ring-primary/60 bg-primary/5' : ''}`}
                             onClick={() => {
                               if (selectionMode) {
                                 toggleFolderSelection(folder.id);
                               } else {
                                 navigateToNode(folder.id);
+                              }
+                            }}
+                            onDragOver={(e) => {
+                              if (!canEdit) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIsDragActive(true);
+                              setDragOverFolderId(folder.id);
+                            }}
+                            onDragLeave={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (dragOverFolderId === folder.id) {
+                                setDragOverFolderId(null);
                               }
                             }}
                           >
@@ -718,9 +829,8 @@ const Documents: React.FC = () => {
                         return (
                           <div
                             key={doc.id}
-                            className={`border border-border rounded-lg p-4 hover:bg-accent transition-colors ${
-                              selectionMode && isSelected ? 'ring-2 ring-primary/60 bg-primary/5' : ''
-                            }`}
+                            className={`border border-border rounded-lg p-4 hover:bg-accent transition-colors ${selectionMode && isSelected ? 'ring-2 ring-primary/60 bg-primary/5' : ''
+                              }`}
                           >
                             <div className="flex items-start gap-3">
                               <div className={`flex-shrink-0 ${getFileColor(doc.ext)}`}>
@@ -760,9 +870,8 @@ const Documents: React.FC = () => {
                                     <Button
                                       size="sm"
                                       variant={selectionMode ? 'outline' : 'ghost'}
-                                      className={`h-7 px-2 text-xs text-destructive hover:text-destructive ${
-                                        selectionMode && isSelected ? 'bg-destructive/10' : ''
-                                      }`}
+                                      className={`h-7 px-2 text-xs text-destructive hover:text-destructive ${selectionMode && isSelected ? 'bg-destructive/10' : ''
+                                        }`}
                                       onClick={() => {
                                         if (selectionMode) {
                                           toggleDocumentSelection(doc.id);
@@ -790,9 +899,8 @@ const Documents: React.FC = () => {
                         return (
                           <div
                             key={doc.id}
-                            className={`border border-border rounded-lg p-3 hover:bg-accent transition-colors ${
-                              selectionMode && isSelected ? 'ring-2 ring-primary/60 bg-primary/5' : ''
-                            }`}
+                            className={`border border-border rounded-lg p-3 hover:bg-accent transition-colors ${selectionMode && isSelected ? 'ring-2 ring-primary/60 bg-primary/5' : ''
+                              }`}
                           >
                             <div className="flex items-center gap-3">
                               <div className={`flex-shrink-0 ${getFileColor(doc.ext)}`}>
@@ -829,9 +937,8 @@ const Documents: React.FC = () => {
                                   <Button
                                     size="sm"
                                     variant={selectionMode ? 'outline' : 'ghost'}
-                                    className={`text-destructive hover:text-destructive ${
-                                      selectionMode && isSelected ? 'bg-destructive/10' : ''
-                                    }`}
+                                    className={`text-destructive hover:text-destructive ${selectionMode && isSelected ? 'bg-destructive/10' : ''
+                                      }`}
                                     onClick={() => {
                                       if (selectionMode) {
                                         toggleDocumentSelection(doc.id);
@@ -851,6 +958,23 @@ const Documents: React.FC = () => {
                       })}
                     </div>
                   )
+                )}
+                {isDragActive && canEdit && (
+                  <div className="fixed inset-0 z-40 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                    <div className="rounded-xl border bg-card/95 px-6 py-4 shadow-xl text-center space-y-2">
+                      <p className="text-sm font-medium">
+                        Drop files to upload to{' '}
+                        <span className="font-semibold">
+                          {dragOverFolderId
+                            ? folders.find((f) => f.id === dragOverFolderId)?.name || 'selected folder'
+                            : current?.name}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Folder structure will be preserved inside the target folder.
+                      </p>
+                    </div>
+                  </div>
                 )}
               </CardContent>
             </Card>
