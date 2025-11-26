@@ -25,6 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import MainLayout from '@/components/layout/MainLayout';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -163,6 +164,7 @@ const TaxReportDetail = () => {
 
   const formatCurrency = (amount: string | number) => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+    if (isNaN(num)) return 'R 0.00';
     return new Intl.NumberFormat('en-ZA', {
       style: 'currency',
       currency: 'ZAR',
@@ -195,35 +197,39 @@ const TaxReportDetail = () => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="container mx-auto p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-10 w-64" />
-          <Skeleton className="h-10 w-32" />
+      <MainLayout>
+        <div className="container mx-auto p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-10 w-64" />
+            <Skeleton className="h-10 w-32" />
+          </div>
+          <Skeleton className="h-96 w-full" />
         </div>
-        <Skeleton className="h-96 w-full" />
-      </div>
+      </MainLayout>
     );
   }
 
   // Error state
   if (isError || !taxReturn) {
     return (
-      <div className="container mx-auto p-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Error Loading Tax Report</CardTitle>
-            <CardDescription>
-              The tax report could not be loaded. Please try again later.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => navigate('/accounting/tax-reports')}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Tax Reports
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <MainLayout>
+        <div className="container mx-auto p-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Error Loading Tax Report</CardTitle>
+              <CardDescription>
+                The tax report could not be loaded. Please try again later.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => navigate('/accounting/tax-reports')}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Tax Reports
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </MainLayout>
     );
   }
 
@@ -234,261 +240,263 @@ const TaxReportDetail = () => {
   const canExport = taxReturn.status === 'submitted';
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/accounting/tax-reports')}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Tax Return #{taxReturn.id}
-            </h1>
-            <Badge className={getStatusColor(taxReturn.status)}>
-              {taxReturn.status.charAt(0).toUpperCase() + taxReturn.status.slice(1)}
-            </Badge>
+    <MainLayout>
+      <div className="container mx-auto p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/accounting/tax-reports')}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
+              </Button>
+              <h1 className="text-2xl font-bold tracking-tight">
+                Tax Return #{taxReturn.id}
+              </h1>
+              <Badge className={getStatusColor(taxReturn.status)}>
+                {taxReturn.status.charAt(0).toUpperCase() + taxReturn.status.slice(1)}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {getTypeName(taxReturn.type)}
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            {getTypeName(taxReturn.type)}
-          </p>
-        </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-2">
-          {canReview && (
-            <Button
-              onClick={() => reviewMutation.mutate()}
-              disabled={reviewMutation.isLoading}
-            >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Mark as Reviewed
-            </Button>
-          )}
-          {canSubmit && (
-            <Button
-              onClick={() => submitMutation.mutate()}
-              disabled={submitMutation.isLoading}
-            >
-              <Send className="h-4 w-4 mr-2" />
-              Submit Return
-            </Button>
-          )}
-          {canExport && (
-            <Button onClick={handleExport} variant="secondary">
-              <Download className="h-4 w-4 mr-2" />
-              Download Excel
-            </Button>
-          )}
-          {canDelete && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive">
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Tax Return?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently delete this tax return. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => deleteMutation.mutate()}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
+          {/* Action Buttons */}
+          <div className="flex gap-2">
+            {canReview && (
+              <Button
+                onClick={() => reviewMutation.mutate()}
+                disabled={reviewMutation.isLoading}
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Mark as Reviewed
+              </Button>
+            )}
+            {canSubmit && (
+              <Button
+                onClick={() => submitMutation.mutate()}
+                disabled={submitMutation.isLoading}
+              >
+                <Send className="h-4 w-4 mr-2" />
+                Submit Return
+              </Button>
+            )}
+            {canExport && (
+              <Button onClick={handleExport} variant="secondary">
+                <Download className="h-4 w-4 mr-2" />
+                Download Excel
+              </Button>
+            )}
+            {canDelete && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive">
+                    <Trash2 className="h-4 w-4 mr-2" />
                     Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-        </div>
-      </div>
-
-      {/* Tax Return Details */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Tax Return Details</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <Label className="text-sm font-medium text-muted-foreground">Type</Label>
-              <p className="text-sm font-medium">{getTypeName(taxReturn.type)}</p>
-            </div>
-            <div>
-              <Label className="text-sm font-medium text-muted-foreground">Period</Label>
-              <p className="text-sm font-medium">
-                {formatDate(taxReturn.period_start)} - {formatDate(taxReturn.period_end)}
-              </p>
-            </div>
-            <div>
-              <Label className="text-sm font-medium text-muted-foreground">Due Date</Label>
-              <p className="text-sm font-medium">{formatDate(taxReturn.due_date)}</p>
-            </div>
-            <div>
-              <Label className="text-sm font-medium text-muted-foreground">Total Amount</Label>
-              <p className="text-lg font-bold">{formatCurrency(taxReturn.amount)}</p>
-            </div>
-          </div>
-
-          {taxReturn.reference && (
-            <div>
-              <Label className="text-sm font-medium text-muted-foreground">Reference</Label>
-              <p className="text-sm">{taxReturn.reference}</p>
-            </div>
-          )}
-
-          {taxReturn.submitted_date && (
-            <div>
-              <Label className="text-sm font-medium text-muted-foreground">Submitted Date</Label>
-              <p className="text-sm">{formatDate(taxReturn.submitted_date)}</p>
-            </div>
-          )}
-
-          {taxReturn.notes && (
-            <div>
-              <Label className="text-sm font-medium text-muted-foreground">Notes</Label>
-              <p className="text-sm whitespace-pre-wrap">{taxReturn.notes}</p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
-            <div>
-              <span className="font-medium">Created:</span> {formatDate(taxReturn.created_at)}
-              {taxReturn.created_by && <span> by User #{taxReturn.created_by}</span>}
-            </div>
-            {taxReturn.reviewed_at && (
-              <div>
-                <span className="font-medium">Reviewed:</span> {formatDate(taxReturn.reviewed_at)}
-                {taxReturn.reviewed_by && <span> by User #{taxReturn.reviewed_by}</span>}
-              </div>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Tax Return?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete this tax return. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => deleteMutation.mutate()}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Manual Override Section (Draft only) */}
-      {canEdit && (
+        {/* Tax Return Details */}
         <Card>
           <CardHeader>
-            <CardTitle>Manual Override</CardTitle>
+            <CardTitle>Tax Return Details</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Type</Label>
+                <p className="text-sm font-medium">{getTypeName(taxReturn.type)}</p>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Period</Label>
+                <p className="text-sm font-medium">
+                  {formatDate(taxReturn.period_start)} - {formatDate(taxReturn.period_end)}
+                </p>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Due Date</Label>
+                <p className="text-sm font-medium">{formatDate(taxReturn.due_date)}</p>
+              </div>
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Total Amount</Label>
+                <p className="text-lg font-bold">{formatCurrency(taxReturn.amount)}</p>
+              </div>
+            </div>
+
+            {taxReturn.reference && (
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Reference</Label>
+                <p className="text-sm">{taxReturn.reference}</p>
+              </div>
+            )}
+
+            {taxReturn.submitted_date && (
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Submitted Date</Label>
+                <p className="text-sm">{formatDate(taxReturn.submitted_date)}</p>
+              </div>
+            )}
+
+            {taxReturn.notes && (
+              <div>
+                <Label className="text-sm font-medium text-muted-foreground">Notes</Label>
+                <p className="text-sm whitespace-pre-wrap">{taxReturn.notes}</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
+              <div>
+                <span className="font-medium">Created:</span> {formatDate(taxReturn.created_at)}
+                {taxReturn.created_by && <span> by User #{taxReturn.created_by}</span>}
+              </div>
+              {taxReturn.reviewed_at && (
+                <div>
+                  <span className="font-medium">Reviewed:</span> {formatDate(taxReturn.reviewed_at)}
+                  {taxReturn.reviewed_by && <span> by User #{taxReturn.reviewed_by}</span>}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Manual Override Section (Draft only) */}
+        {canEdit && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Manual Override</CardTitle>
+              <CardDescription>
+                Adjust the calculated amount or add notes before review
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!isEditingOverride ? (
+                <Button onClick={() => {
+                  setIsEditingOverride(true);
+                  setOverrideAmount(taxReturn.amount);
+                  setOverrideNotes(taxReturn.notes || '');
+                }}>
+                  Edit Amount & Notes
+                </Button>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="override-amount">Amount (ZAR)</Label>
+                    <Input
+                      id="override-amount"
+                      type="number"
+                      step="0.01"
+                      value={overrideAmount}
+                      onChange={(e) => setOverrideAmount(e.target.value)}
+                      placeholder="Enter amount"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="override-notes">Notes</Label>
+                    <Textarea
+                      id="override-notes"
+                      value={overrideNotes}
+                      onChange={(e) => setOverrideNotes(e.target.value)}
+                      placeholder="Add notes or explanation for manual override"
+                      rows={4}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => updateMutation.mutate()}
+                      disabled={updateMutation.isLoading}
+                    >
+                      Save Changes
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsEditingOverride(false);
+                        setOverrideAmount('');
+                        setOverrideNotes('');
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Line Items */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Line Items</CardTitle>
             <CardDescription>
-              Adjust the calculated amount or add notes before review
+              {lines.length} line item{lines.length !== 1 ? 's' : ''}
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {!isEditingOverride ? (
-              <Button onClick={() => {
-                setIsEditingOverride(true);
-                setOverrideAmount(taxReturn.amount);
-                setOverrideNotes(taxReturn.notes || '');
-              }}>
-                Edit Amount & Notes
-              </Button>
+          <CardContent>
+            {lines.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No line items</p>
             ) : (
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="override-amount">Amount (ZAR)</Label>
-                  <Input
-                    id="override-amount"
-                    type="number"
-                    step="0.01"
-                    value={overrideAmount}
-                    onChange={(e) => setOverrideAmount(e.target.value)}
-                    placeholder="Enter amount"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="override-notes">Notes</Label>
-                  <Textarea
-                    id="override-notes"
-                    value={overrideNotes}
-                    onChange={(e) => setOverrideNotes(e.target.value)}
-                    placeholder="Add notes or explanation for manual override"
-                    rows={4}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => updateMutation.mutate()}
-                    disabled={updateMutation.isLoading}
-                  >
-                    Save Changes
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setIsEditingOverride(false);
-                      setOverrideAmount('');
-                      setOverrideNotes('');
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Account</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-center">Manual Override</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lines.map((line) => (
+                    <TableRow key={line.id}>
+                      <TableCell>{line.description}</TableCell>
+                      <TableCell>
+                        {line.account_id ? `Account #${line.account_id}` : '-'}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(line.amount)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {line.is_manual_override ? (
+                          <Badge variant="secondary">Manual</Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Auto</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>
-      )}
-
-      {/* Line Items */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Line Items</CardTitle>
-          <CardDescription>
-            {lines.length} line item{lines.length !== 1 ? 's' : ''}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {lines.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No line items</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Account</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-center">Manual Override</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lines.map((line) => (
-                  <TableRow key={line.id}>
-                    <TableCell>{line.description}</TableCell>
-                    <TableCell>
-                      {line.account_id ? `Account #${line.account_id}` : '-'}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(line.amount)}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {line.is_manual_override ? (
-                        <Badge variant="secondary">Manual</Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Auto</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+      </div>
+    </MainLayout>
   );
 };
 

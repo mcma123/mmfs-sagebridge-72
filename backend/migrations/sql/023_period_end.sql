@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS accounting.periods (
 );
 
 CREATE INDEX IF NOT EXISTS idx_periods_year_start
-  ON accounting.periods (DATE_TRUNC('year', period_start));
+  ON accounting.periods ((EXTRACT(YEAR FROM period_start)));
 
 -- touch_updated_at trigger
 DO $$

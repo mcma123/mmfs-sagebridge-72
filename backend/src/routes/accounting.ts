@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import { authorize } from '../middleware/rbac';
 import ExcelJS from 'exceljs';
 import { broadcastJournalPosted, broadcastGeneralRefresh } from '../realtime/dashboardBroadcast';
@@ -8,7 +8,7 @@ const router = express.Router();
 // Ensure Supabase-backed routes fail gracefully when Supabase is unavailable
 const requireSupabase = (req: any, res: any, next: any) => {
   if (!(req as any).db) {
-    console.error('[accounting] ✗ Supabase client not available on request', {
+    console.error('[accounting] âœ— Supabase client not available on request', {
       path: req.path,
       method: req.method,
       supabaseAvailable: req.supabaseAvailable,
@@ -34,7 +34,7 @@ const requireSupabase = (req: any, res: any, next: any) => {
 };
 
 // Entities CRUD
-router.get('/entities', authorize(['admin','accountant','editor','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/entities', authorize(['admin', 'accountant', 'editor', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     // Exclude soft-deleted by default
     const { data, error } = await req.db
@@ -48,7 +48,7 @@ router.get('/entities', authorize(['admin','accountant','editor','viewer']), req
   } catch (err) { next(err); }
 });
 
-router.post('/entities', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/entities', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { name, type, status, currency, country, email, phone, notes } = req.body || {};
     if (!name || !type) throw { status: 400, code: 'INVALID_BODY', message: 'name and type required' };
@@ -68,7 +68,7 @@ router.post('/entities', authorize(['admin','accountant']), requireSupabase, asy
 });
 
 // Get single entity
-router.get('/entities/:id', authorize(['admin','accountant','editor','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/entities/:id', authorize(['admin', 'accountant', 'editor', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { data, error } = await req.db
@@ -84,7 +84,7 @@ router.get('/entities/:id', authorize(['admin','accountant','editor','viewer']),
 });
 
 // Soft delete entity (blocked if referenced by journal lines)
-router.delete('/entities/:id', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+router.delete('/entities/:id', authorize(['admin', 'accountant']), async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const refCheck = await req.pg.query('SELECT COUNT(*)::INT AS cnt FROM accounting.journal_lines WHERE entity_id = $1', [Number(id)]);
@@ -102,7 +102,7 @@ router.delete('/entities/:id', authorize(['admin','accountant']), async (req: an
   } catch (err) { next(err); }
 });
 
-router.patch('/entities/:id', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.patch('/entities/:id', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { name, type, status, currency, country, email, phone, notes } = req.body || {};
@@ -123,7 +123,7 @@ router.patch('/entities/:id', authorize(['admin','accountant']), requireSupabase
 });
 
 // Accounts CRUD
-router.get('/accounts', authorize(['admin','accountant','editor','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/accounts', authorize(['admin', 'accountant', 'editor', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { data, error } = await req.db.from('accounting_accounts').select('*').order('code', { ascending: true });
     if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
@@ -131,7 +131,7 @@ router.get('/accounts', authorize(['admin','accountant','editor','viewer']), req
   } catch (err) { next(err); }
 });
 
-router.post('/accounts', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/accounts', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { code, name, type, currency, parent_id, is_active } = req.body || {};
     if (!code || !name || !type) throw { status: 400, code: 'INVALID_BODY', message: 'code, name, type required' };
@@ -149,7 +149,7 @@ router.post('/accounts', authorize(['admin','accountant']), requireSupabase, asy
 });
 
 // Get single account
-router.get('/accounts/:id', authorize(['admin','accountant','editor','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/accounts/:id', authorize(['admin', 'accountant', 'editor', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { data, error } = await req.db
@@ -163,7 +163,7 @@ router.get('/accounts/:id', authorize(['admin','accountant','editor','viewer']),
   } catch (err) { next(err); }
 });
 
-router.patch('/accounts/:id', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.patch('/accounts/:id', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { code, name, type, currency, parent_id, is_active } = req.body || {};
@@ -181,7 +181,7 @@ router.patch('/accounts/:id', authorize(['admin','accountant']), requireSupabase
   } catch (err) { next(err); }
 });
 
-router.delete('/accounts/:id', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+router.delete('/accounts/:id', authorize(['admin', 'accountant']), async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const cascade = ['1', 'true', 'yes'].includes(
@@ -259,7 +259,7 @@ router.delete('/accounts/:id', authorize(['admin','accountant']), async (req: an
 });
 
 // Journals: post and list
-router.post('/journals', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/journals', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { date, reference, description, lines } = req.body || {};
     if (!date || !Array.isArray(lines) || lines.length === 0) throw { status: 400, code: 'INVALID_BODY', message: 'date and lines[] required' };
@@ -277,7 +277,7 @@ router.post('/journals', authorize(['admin','accountant']), requireSupabase, asy
 });
 
 // Create journal draft (allows unbalanced)
-router.post('/journals/draft', authorize(['admin','accountant','editor']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/journals/draft', authorize(['admin', 'accountant', 'editor']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { date, reference, description, lines } = req.body || {};
     if (!date || !Array.isArray(lines) || lines.length === 0) throw { status: 400, code: 'INVALID_BODY', message: 'date and lines[] required' };
@@ -295,7 +295,7 @@ router.post('/journals/draft', authorize(['admin','accountant','editor']), requi
 });
 
 // Review journal (draft -> reviewed)
-router.patch('/journals/:id/review', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.patch('/journals/:id/review', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const reviewedBy = Number(req.headers['x-user-id']) || null;
@@ -315,7 +315,7 @@ router.patch('/journals/:id/review', authorize(['admin','accountant']), requireS
 });
 
 // Post journal from draft/reviewed
-router.post('/journals/:id/post', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/journals/:id/post', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const postedBy = Number(req.headers['x-user-id']) || null;
@@ -334,7 +334,7 @@ router.post('/journals/:id/post', authorize(['admin','accountant']), requireSupa
   } catch (err) { next(err); }
 });
 
-router.get('/journals', authorize(['admin','accountant','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/journals', authorize(['admin', 'accountant', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { start, end, status } = req.query as any;
     let q = req.db.from('accounting_journals').select('*');
@@ -349,7 +349,7 @@ router.get('/journals', authorize(['admin','accountant','viewer']), requireSupab
 });
 
 // Get a single journal with lines
-router.get('/journals/:id', authorize(['admin','accountant','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/journals/:id', authorize(['admin', 'accountant', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const j = await req.db
@@ -370,7 +370,7 @@ router.get('/journals/:id', authorize(['admin','accountant','viewer']), requireS
 });
 
 // Void a journal by posting reversal
-router.post('/journals/:id/void', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/journals/:id/void', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { reason } = req.body || {};
@@ -436,7 +436,7 @@ router.delete('/journals/:id', authorize(['admin']), requireSupabase, async (req
 // ============================================================================
 
 // Mark debit note as paid (creates payment journal)
-router.post('/journals/:id/mark-paid', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/journals/:id/mark-paid', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { bank_account_id, payment_date, notes } = req.body || {};
@@ -467,7 +467,7 @@ router.post('/journals/:id/mark-paid', authorize(['admin','accountant']), requir
 });
 
 // Record partial payment for debit note
-router.post('/journals/:id/partial-payment', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/journals/:id/partial-payment', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { amount, bank_account_id, payment_date, notes } = req.body || {};
@@ -498,7 +498,7 @@ router.post('/journals/:id/partial-payment', authorize(['admin','accountant']), 
 });
 
 // Reconcile payment for debit note
-router.post('/journals/:id/reconcile', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/journals/:id/reconcile', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const createdBy = Number(req.headers['x-user-id']) || null;
@@ -520,7 +520,7 @@ router.post('/journals/:id/reconcile', authorize(['admin','accountant']), requir
 });
 
 // Apply credit note to debit note
-router.post('/journals/:id/apply-credit', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/journals/:id/apply-credit', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params; // credit note id
     const { debit_note_id, amount, applied_date, notes } = req.body || {};
@@ -562,7 +562,7 @@ router.post('/journals/:id/apply-credit', authorize(['admin','accountant']), req
 });
 
 // Mark refund paid for credit note
-router.post('/journals/:id/refund-paid', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.post('/journals/:id/refund-paid', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { bank_account_id, payment_date, notes } = req.body || {};
@@ -592,7 +592,7 @@ router.post('/journals/:id/refund-paid', authorize(['admin','accountant']), requ
 });
 
 // Export note as PDF
-router.get('/journals/:id/pdf', authorize(['admin','accountant','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/journals/:id/pdf', authorize(['admin', 'accountant', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
 
@@ -637,7 +637,7 @@ router.get('/journals/:id/pdf', authorize(['admin','accountant','viewer']), requ
 });
 
 // Ledger query (with optional filters and pagination)
-router.get('/ledger', authorize(['admin','accountant','editor','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/ledger', authorize(['admin', 'accountant', 'editor', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { account_id, start, end, limit = 50, offset = 0 } = req.query as any;
     let q = req.db.from('accounting_ledger_entries').select('*', { count: 'exact' }).order('date', { ascending: true }).order('id', { ascending: true });
@@ -652,7 +652,7 @@ router.get('/ledger', authorize(['admin','accountant','editor','viewer']), requi
 });
 
 // Trial balance (with optional date filter)
-router.get('/trial-balance', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
+router.get('/trial-balance', authorize(['admin', 'accountant', 'viewer']), async (req: any, res: any, next: any) => {
   try {
     const { asOfDate } = req.query;
 
@@ -680,13 +680,13 @@ router.get('/trial-balance', authorize(['admin','accountant','viewer']), async (
           AND p.proname = 'fn_trial_balance_asof'
         ) as exists
       `);
-      
+
       if (!fnCheck.rows[0].exists) {
         console.error('Trial balance function does not exist. Run migration 012_trial_balance_filters.sql');
-        throw { 
-          status: 500, 
-          code: 'MIGRATION_MISSING', 
-          message: 'Trial balance function not found. Please run database migration 012.' 
+        throw {
+          status: 500,
+          code: 'MIGRATION_MISSING',
+          message: 'Trial balance function not found. Please run database migration 012.'
         };
       }
     } catch (checkErr: any) {
@@ -705,7 +705,7 @@ router.get('/trial-balance', authorize(['admin','accountant','viewer']), async (
 });
 
 // Export trial balance to Excel
-router.get('/trial-balance/export', authorize(['admin','accountant','viewer']), async (req: any, res: any, next: any) => {
+router.get('/trial-balance/export', authorize(['admin', 'accountant', 'viewer']), async (req: any, res: any, next: any) => {
   try {
     const { asOfDate } = req.query;
 
@@ -875,7 +875,7 @@ router.get('/trial-balance/export', authorize(['admin','accountant','viewer']), 
 // ============================================================================
 
 // Get all tax returns with optional filters
-router.get('/tax-reports', authorize(['admin','accountant','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/tax-reports', authorize(['admin', 'accountant', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { type, year, status } = req.query as any;
     let q = req.db.from('accounting_tax_returns').select('*');
@@ -895,7 +895,7 @@ router.get('/tax-reports', authorize(['admin','accountant','viewer']), requireSu
 });
 
 // Get upcoming tax deadlines (suggestions for next 90 days)
-router.get('/tax-reports/upcoming', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/tax-reports/upcoming', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { data, error } = await req.db.rpc('fn_get_upcoming_tax_deadlines');
     if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
@@ -904,7 +904,7 @@ router.get('/tax-reports/upcoming', authorize(['admin','accountant']), requireSu
 });
 
 // Get single tax return with line items
-router.get('/tax-reports/:id', authorize(['admin','accountant','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/tax-reports/:id', authorize(['admin', 'accountant', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const taxReturn = await req.db
@@ -928,21 +928,79 @@ router.get('/tax-reports/:id', authorize(['admin','accountant','viewer']), requi
   } catch (err) { next(err); }
 });
 
-// Create new tax return (calls RPC to auto-calculate)
-router.post('/tax-reports', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+// Create new tax return (calls RPC to auto-calculate or uses user-provided lines)
+router.post('/tax-reports', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
-    const { type, period_start, period_end, due_date } = req.body || {};
+    const { type, period_start, period_end, due_date, lines } = req.body || {};
     if (!type || !period_start || !period_end || !due_date) {
       throw { status: 400, code: 'INVALID_BODY', message: 'type, period_start, period_end, and due_date required' };
     }
 
     const createdBy = Number(req.headers['x-user-id']) || null;
+    const hasManualLines = Array.isArray(lines) && lines.length > 0;
+
+    // When manual lines are provided, we must call the SQL function directly via req.pg
+    // so that JSONB is passed reliably. We do NOT fall back to Supabase RPC in this case,
+    // otherwise the manual lines may be ignored.
+    if (hasManualLines) {
+      if (!req.pg) {
+        throw {
+          status: 500,
+          code: 'PG_UNAVAILABLE_FOR_MANUAL_LINES',
+          message: 'Manual tax return lines require a Postgres client on the request object (req.pg).',
+        };
+      }
+
+      try {
+        const result = await req.pg.query(
+          'SELECT public.fn_create_tax_return($1, $2, $3, $4, $5, $6) AS result',
+          [
+            type,
+            period_start,
+            period_end,
+            due_date,
+            createdBy,
+            JSON.stringify(lines),
+          ]
+        );
+
+        const row = result.rows?.[0]?.result;
+        if (!row) {
+          throw { status: 500, code: 'DB_ERROR', message: 'fn_create_tax_return returned no result' };
+        }
+
+        return res.status(201).json(row);
+      } catch (error: any) {
+        // Handle foreign key violations on tax_return_lines.account_id specifically so the
+        // frontend can show a clear validation error instead of a generic 500.
+        if (error?.code === '23503' && error?.constraint === 'tax_return_lines_account_id_fkey') {
+          throw {
+            status: 400,
+            code: 'INVALID_ACCOUNT_ID',
+            message:
+              'One or more manual line items refer to an Account ID that does not exist. ' +
+              'Please verify the Account ID values in the Line Items section against your Chart of Accounts.',
+          };
+        }
+
+        // For any other database error, surface a clean DB_ERROR message
+        throw {
+          status: 500,
+          code: 'DB_ERROR',
+          message: error?.message || 'Database error while creating tax return with manual lines',
+        };
+      }
+    }
+
+    // No manual lines provided: use Supabase RPC which preserves the original
+    // auto-calculation behaviour (VAT from ledger, others as 0).
     const { data, error } = await req.db.rpc('fn_create_tax_return', {
       p_type: type,
       p_period_start: period_start,
       p_period_end: period_end,
       p_due_date: due_date,
-      p_created_by: createdBy
+      p_created_by: createdBy,
+      p_lines: null
     });
 
     if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
@@ -951,7 +1009,7 @@ router.post('/tax-reports', authorize(['admin','accountant']), requireSupabase, 
 });
 
 // Update tax return (manual override amounts)
-router.patch('/tax-reports/:id', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.patch('/tax-reports/:id', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { amount, reference, notes, lines } = req.body || {};
@@ -1020,7 +1078,7 @@ router.patch('/tax-reports/:id', authorize(['admin','accountant']), requireSupab
 });
 
 // Review tax return (draft -> reviewed)
-router.patch('/tax-reports/:id/review', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.patch('/tax-reports/:id/review', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const reviewedBy = Number(req.headers['x-user-id']) || null;
@@ -1043,7 +1101,7 @@ router.patch('/tax-reports/:id/review', authorize(['admin','accountant']), requi
 });
 
 // Submit tax return (draft/reviewed -> submitted)
-router.patch('/tax-reports/:id/submit', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+router.patch('/tax-reports/:id/submit', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
     const { submitted_date } = req.body || {};
@@ -1067,15 +1125,15 @@ router.patch('/tax-reports/:id/submit', authorize(['admin','accountant']), requi
   } catch (err) { next(err); }
 });
 
-// Delete tax return (draft only)
-router.delete('/tax-reports/:id', authorize(['admin','accountant']), requireSupabase, async (req: any, res: any, next: any) => {
+// Delete tax return (any status)
+router.delete('/tax-reports/:id', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
 
-    // Check status
+    // Check if tax return exists
     const existing = await req.db
       .from('accounting_tax_returns')
-      .select('status')
+      .select('id')
       .eq('id', Number(id))
       .limit(1)
       .single();
@@ -1084,9 +1142,6 @@ router.delete('/tax-reports/:id', authorize(['admin','accountant']), requireSupa
       throw { status: 404, code: 'NOT_FOUND', message: 'tax return not found' };
     }
 
-    if (existing.data.status !== 'draft') {
-      throw { status: 409, code: 'CANNOT_DELETE', message: 'Can only delete draft tax returns. Reviewed or submitted returns cannot be deleted.' };
-    }
 
     // Delete lines first (cascade should handle this, but being explicit)
     await req.db
@@ -1107,7 +1162,7 @@ router.delete('/tax-reports/:id', authorize(['admin','accountant']), requireSupa
 });
 
 // Get current tax liabilities from ledger
-router.get('/tax-liabilities', authorize(['admin','accountant','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/tax-liabilities', authorize(['admin', 'accountant', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { data, error } = await req.db
       .from('accounting_tax_liabilities')
@@ -1120,7 +1175,7 @@ router.get('/tax-liabilities', authorize(['admin','accountant','viewer']), requi
 });
 
 // Export tax return as Excel (similar to trial balance export)
-router.get('/tax-reports/:id/export', authorize(['admin','accountant','viewer']), requireSupabase, async (req: any, res: any, next: any) => {
+router.get('/tax-reports/:id/export', authorize(['admin', 'accountant', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
     const { id } = req.params;
 
@@ -1227,7 +1282,7 @@ router.get('/tax-reports/:id/export', authorize(['admin','accountant','viewer'])
 });
 
 // Health check endpoint (comprehensive diagnostics)
-router.get('/health', authorize(['admin','accountant','viewer']), async (req: any, res: any) => {
+router.get('/health', authorize(['admin', 'accountant', 'viewer']), async (req: any, res: any) => {
   try {
     const health: any = {
       timestamp: new Date().toISOString(),
@@ -1246,7 +1301,7 @@ router.get('/health', authorize(['admin','accountant','viewer']), async (req: an
     };
 
     const envOk = (health.checks.environment.SUPABASE_URL &&
-                   (health.checks.environment.SUPABASE_SERVICE_ROLE_KEY || health.checks.environment.SUPABASE_ANON_KEY));
+      (health.checks.environment.SUPABASE_SERVICE_ROLE_KEY || health.checks.environment.SUPABASE_ANON_KEY));
     health.checks.environment.status = envOk ? 'healthy' : 'unhealthy';
 
     // Check 2: PostgreSQL Connection
@@ -1407,7 +1462,7 @@ router.get('/health', authorize(['admin','accountant','viewer']), async (req: an
 // ============================================================================
 
 // Get outstanding receivables (unpaid/partial debit notes)
-router.get('/outstanding-items', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+router.get('/outstanding-items', authorize(['admin', 'accountant', 'editor', 'viewer']), async (req: any, res: any, next: any) => {
   try {
     const result = await req.pg.query(`
       SELECT * FROM accounting.vw_outstanding_receivables
@@ -1418,7 +1473,7 @@ router.get('/outstanding-items', authorize(['admin','accountant','editor','viewe
 });
 
 // Get available credit notes
-router.get('/available-credits', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+router.get('/available-credits', authorize(['admin', 'accountant', 'editor', 'viewer']), async (req: any, res: any, next: any) => {
   try {
     const result = await req.pg.query(`
       SELECT * FROM accounting.vw_available_credits
@@ -1429,7 +1484,7 @@ router.get('/available-credits', authorize(['admin','accountant','editor','viewe
 });
 
 // Get unallocated bank transactions
-router.get('/bank-transactions', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+router.get('/bank-transactions', authorize(['admin', 'accountant', 'editor', 'viewer']), async (req: any, res: any, next: any) => {
   try {
     const result = await req.pg.query(`
       SELECT * FROM accounting.vw_unallocated_payments
@@ -1440,7 +1495,7 @@ router.get('/bank-transactions', authorize(['admin','accountant','editor','viewe
 });
 
 // Manual entry of bank transaction
-router.post('/bank-transactions', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+router.post('/bank-transactions', authorize(['admin', 'accountant']), async (req: any, res: any, next: any) => {
   try {
     const { transaction_date, reference, description, amount, entity_name, bank_account_id, notes } = req.body || {};
 
@@ -1462,7 +1517,7 @@ router.post('/bank-transactions', authorize(['admin','accountant']), async (req:
 });
 
 // Import CSV bank statement
-router.post('/bank-transactions/import', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+router.post('/bank-transactions/import', authorize(['admin', 'accountant']), async (req: any, res: any, next: any) => {
   try {
     const { transactions, description } = req.body || {};
 
@@ -1521,7 +1576,7 @@ router.post('/bank-transactions/import', authorize(['admin','accountant']), asyn
 });
 
 // Suggest matches for a bank transaction
-router.post('/reconciliation/suggest-matches', authorize(['admin','accountant','editor','viewer']), async (req: any, res: any, next: any) => {
+router.post('/reconciliation/suggest-matches', authorize(['admin', 'accountant', 'editor', 'viewer']), async (req: any, res: any, next: any) => {
   try {
     const { bank_transaction_id } = req.body || {};
 
@@ -1593,7 +1648,7 @@ router.post('/reconciliation/suggest-matches', authorize(['admin','accountant','
         }
       }
 
-      // 4. Date Proximity (10 points) - ±7 days window
+      // 4. Date Proximity (10 points) - Â±7 days window
       const daysDiff = Math.abs((txDate.getTime() - new Date(item.journal_date).getTime()) / (1000 * 60 * 60 * 24));
       if (daysDiff <= 7) {
         const dateScore = Math.round((1 - daysDiff / 7) * 10);
@@ -1616,18 +1671,18 @@ router.post('/reconciliation/suggest-matches', authorize(['admin','accountant','
       };
     });
 
-        // Sort by score descending and return top 10
-        const sortedMatches = matches
-          .filter((m: any) => m.match_score > 0)
-          .sort((a: any, b: any) => b.match_score - a.match_score)
-          .slice(0, 10);
+    // Sort by score descending and return top 10
+    const sortedMatches = matches
+      .filter((m: any) => m.match_score > 0)
+      .sort((a: any, b: any) => b.match_score - a.match_score)
+      .slice(0, 10);
 
     res.json({ matches: sortedMatches });
   } catch (err) { next(err); }
 });
 
 // Apply match(es) - allocate payment to journal(s)
-router.post('/reconciliation/apply-match', authorize(['admin','accountant']), async (req: any, res: any, next: any) => {
+router.post('/reconciliation/apply-match', authorize(['admin', 'accountant']), async (req: any, res: any, next: any) => {
   try {
     const { bank_transaction_id, allocations } = req.body || {};
 
@@ -1720,7 +1775,7 @@ router.post('/reconciliation/apply-match', authorize(['admin','accountant']), as
   } catch (err) { next(err); }
 });
 
- // Helper function: Calculate string similarity (simple Levenshtein-based)
+// Helper function: Calculate string similarity (simple Levenshtein-based)
 function calculateStringSimilarity(str1: string, str2: string): number {
   if (!str1 || !str2) return 0;
   if (str1 === str2) return 100;

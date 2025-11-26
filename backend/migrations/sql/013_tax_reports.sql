@@ -151,7 +151,7 @@ BEGIN
 
   RETURN v_net_vat;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function: Create tax return with auto-calculated amount
 CREATE OR REPLACE FUNCTION public.fn_create_tax_return(
@@ -242,7 +242,7 @@ BEGIN
 
   RETURN v_result;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function: Review tax return (mark as reviewed)
 CREATE OR REPLACE FUNCTION public.fn_review_tax_return(
@@ -267,7 +267,7 @@ BEGIN
     updated_at = NOW()
   WHERE id = p_tax_return_id;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function: Submit tax return (mark as submitted)
 CREATE OR REPLACE FUNCTION public.fn_submit_tax_return(
@@ -292,7 +292,7 @@ BEGIN
     updated_at = NOW()
   WHERE id = p_tax_return_id;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function: Get upcoming tax deadlines (next 90 days)
 -- Returns suggested tax returns that should be created
@@ -340,7 +340,7 @@ BEGIN
     )
   ORDER BY q.q_due;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================================================
 -- GRANTS FOR RPC FUNCTIONS

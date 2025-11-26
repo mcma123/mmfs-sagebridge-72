@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import MainLayout from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, Download, Calendar, FileText, AlertTriangle, Loader2, Plus } from 'lucide-react';
+import { ChevronLeft, Download, Calendar, FileText, AlertTriangle, Loader2, Plus, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useNavigate } from 'react-router-dom';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -16,6 +16,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import {
@@ -38,6 +48,8 @@ const TaxReports = () => {
   const [activeTab, setActiveTab] = useState('all');
   const [yearFilter, setYearFilter] = useState(new Date().getFullYear().toString());
   const [typeFilter, setTypeFilter] = useState('all');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [taxReturnToDelete, setTaxReturnToDelete] = useState<TaxReturnDTO | null>(null);
 
   const role = getPrimaryRole();
   const userId = Number(localStorage.getItem('user_id')) || 1;
@@ -121,7 +133,9 @@ const TaxReports = () => {
     mutationFn: ({ id }: { id: number }) => deleteTaxReturn(id, role),
     onSuccess: () => {
       queryClient.invalidateQueries(['tax-reports']);
-      toast.success('Tax return deleted successfully');
+      setDeleteDialogOpen(false);
+      setTaxReturnToDelete(null);
+      toast.success('Tax return deleted permanently');
     },
     onError: (error: any) => {
       toast.error('Failed to delete tax return', {
@@ -148,6 +162,18 @@ const TaxReports = () => {
       toast.error('Failed to export tax return', {
         description: error?.message || 'Please try again',
       });
+    }
+  };
+
+  // Handle delete confirmation
+  const handleDeleteClick = (report: TaxReturnDTO) => {
+    setTaxReturnToDelete(report);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (taxReturnToDelete) {
+      deleteMutation.mutate({ id: taxReturnToDelete.id });
     }
   };
 
@@ -233,24 +259,14 @@ const TaxReports = () => {
             View
           </Button>
           {report.status === 'draft' && (role === 'admin' || role === 'accountant') && (
-            <>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => reviewMutation.mutate({ id: report.id })}
-                disabled={reviewMutation.isPending}
-              >
-                {reviewMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Review'}
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => deleteMutation.mutate({ id: report.id })}
-                disabled={deleteMutation.isPending}
-              >
-                Delete
-              </Button>
-            </>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => reviewMutation.mutate({ id: report.id })}
+              disabled={reviewMutation.isPending}
+            >
+              {reviewMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Review'}
+            </Button>
           )}
           {report.status === 'reviewed' && (role === 'admin' || role === 'accountant') && (
             <Button
@@ -265,6 +281,17 @@ const TaxReports = () => {
             <Button size="sm" variant="outline" onClick={() => handleExport(report.id, report)}>
               <Download className="h-3.5 w-3.5 mr-1" />
               Download
+            </Button>
+          )}
+          {(role === 'admin' || role === 'accountant') && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => handleDeleteClick(report)}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Delete
             </Button>
           )}
         </div>
@@ -358,9 +385,8 @@ const TaxReports = () => {
                   {upcomingReturns.slice(0, 3).map((upcoming, idx) => (
                     <div
                       key={idx}
-                      className={`flex items-center p-3 border rounded-md ${
-                        idx === 0 ? 'bg-amber-50 border-amber-200' : 'bg-white'
-                      }`}
+                      className={`flex items-center p-3 border rounded-md ${idx === 0 ? 'bg-amber-50 border-amber-200' : 'bg-white'
+                        }`}
                     >
                       <div className={`p-2 rounded-full mr-3 ${idx === 0 ? 'bg-amber-100' : 'bg-sage-lightGray'}`}>
                         <Calendar className={`h-4 w-4 ${idx === 0 ? 'text-amber-700' : 'text-sage-blue'}`} />
@@ -532,6 +558,41 @@ const TaxReports = () => {
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the tax return{' '}
+              {taxReturnToDelete && (
+                <span className="font-semibold">
+                  "{getTypeName(taxReturnToDelete.type)} - {formatDate(taxReturnToDelete.period_start)} to {formatDate(taxReturnToDelete.period_end)}"
+                </span>
+              )}{' '}
+              and remove all associated data from the system.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              disabled={deleteMutation.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Permanently'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 };

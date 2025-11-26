@@ -12,6 +12,7 @@ import {
   getUpcomingTaxReturns,
   getTaxLiabilities,
   createTaxReturn,
+  updateTaxReturn,
   type CreateTaxReturnRequest,
   type UpcomingTaxReturnDTO,
   type TaxLiabilityDTO,
@@ -31,6 +32,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import MainLayout from '@/components/layout/MainLayout';
 
 // Form validation schema
 const createTaxReturnSchema = z.object({
@@ -117,14 +119,33 @@ const CreateTaxReport = () => {
         account_id: liability.account_id,
         amount: parseFloat(liability.amount),
       }));
-      setLineItems(autoLines);
+
+      // Merge calculated VAT lines with any existing manual lines
+      setLineItems((prev) => {
+        const manualLines = prev.filter((line) => !line.id.startsWith('auto-'));
+        return [...autoLines, ...manualLines];
+      });
     }
   }, [liabilities, showPreview, selectedType]);
 
   // Create mutation
   const createMutation = useMutation({
-    mutationFn: (data: CreateTaxReturnRequest & { lines?: any[] }) => {
-      return createTaxReturn(data, role, userId);
+    mutationFn: async (data: CreateTaxReturnRequest & { lines?: any[] }) => {
+      // 1. Create the base tax return
+      const newReport = await createTaxReturn(data, role, userId);
+
+      // 2. If we have lines, immediately update the report with them
+      // This is a workaround because the create endpoint might not be processing lines correctly
+      if (data.lines && data.lines.length > 0) {
+        const totalAmount = data.lines.reduce((sum, line) => sum + line.amount, 0);
+
+        await updateTaxReturn(newReport.id, {
+          amount: totalAmount,
+          lines: data.lines
+        }, role);
+      }
+
+      return newReport;
     },
     onSuccess: (response) => {
       toast.success('Tax return created successfully');
@@ -133,8 +154,17 @@ const CreateTaxReport = () => {
       navigate(`/accounting/tax-reports/${taxReturnId}`);
     },
     onError: (error: any) => {
+      let description = error?.message || 'Please try again';
+
+      // Surface a clearer message for invalid manual Account IDs
+      if (typeof error?.message === 'string' && error.message.includes('INVALID_ACCOUNT_ID')) {
+        description =
+          'One or more line items use an Account ID that does not exist. ' +
+          'Please check the Account ID values against your Chart of Accounts.';
+      }
+
       toast.error('Failed to create tax return', {
-        description: error?.message || 'Please try again',
+        description,
       });
     },
   });
@@ -152,10 +182,20 @@ const CreateTaxReport = () => {
       return;
     }
 
+    let accountId: number | null = null;
+    if (newLineAccount && newLineAccount.trim() !== '') {
+      const parsed = Number(newLineAccount);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        toast.error('Account ID must be a positive whole number');
+        return;
+      }
+      accountId = parsed;
+    }
+
     const newLine: LineItem = {
       id: `manual-${Date.now()}`,
       description: newLineDescription,
-      account_id: newLineAccount ? parseInt(newLineAccount) : null,
+      account_id: accountId,
       amount,
     };
 
@@ -179,6 +219,40 @@ const CreateTaxReport = () => {
 
   // Handle form submission
   const onSubmit = (data: FormValues) => {
+    // Check for pending line item details
+    const finalLineItems = [...lineItems];
+
+    // If user has typed something in the add line inputs
+    if (newLineDescription || newLineAmount || newLineAccount) {
+      if (!newLineDescription || !newLineAmount) {
+        toast.error('Please complete the line item or clear the fields before saving');
+        return;
+      }
+
+      const amount = parseFloat(newLineAmount);
+      if (isNaN(amount) || amount === 0) {
+        toast.error('Amount must be a valid non-zero number');
+        return;
+      }
+
+      let accountId: number | null = null;
+      if (newLineAccount && newLineAccount.trim() !== '') {
+        const parsed = Number(newLineAccount);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          toast.error('Account ID must be a positive whole number');
+          return;
+        }
+        accountId = parsed;
+      }
+
+      finalLineItems.push({
+        id: `manual-pending-${Date.now()}`,
+        description: newLineDescription,
+        account_id: accountId,
+        amount,
+      });
+    }
+
     const payload: CreateTaxReturnRequest & { lines?: any[] } = {
       type: data.type,
       period_start: format(data.period_start, 'yyyy-MM-dd'),
@@ -187,8 +261,8 @@ const CreateTaxReport = () => {
     };
 
     // Include manual line items if any were added/modified
-    if (lineItems.length > 0) {
-      payload.lines = lineItems.map((line) => ({
+    if (finalLineItems.length > 0) {
+      payload.lines = finalLineItems.map((line) => ({
         description: line.description,
         account_id: line.account_id,
         amount: line.amount,
@@ -237,371 +311,373 @@ const CreateTaxReport = () => {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/accounting/tax-reports')}
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <h1 className="text-2xl font-bold tracking-tight">Generate Tax Report</h1>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Create a new tax return with automatic calculation or manual entry
-          </p>
-        </div>
-      </div>
-
-      {/* Upcoming Suggestions */}
-      {upcomingReturns.length > 0 && (
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertTitle>Upcoming Tax Returns</AlertTitle>
-          <AlertDescription>
-            <p className="mb-3">Select from suggested upcoming tax returns:</p>
-            <div className="space-y-2">
-              {upcomingReturns.map((suggestion, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-3 bg-background border rounded-lg"
-                >
-                  <div className="flex-1">
-                    <p className="font-medium">{getTypeName(suggestion.type)}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Period: {formatDate(new Date(suggestion.period_start))} - {formatDate(new Date(suggestion.period_end))}
-                      {' '} | Due: {formatDate(new Date(suggestion.due_date))}
-                    </p>
-                    <p className="text-sm font-medium mt-1">
-                      Suggested Amount: {formatCurrency(suggestion.suggested_amount)}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleSelectSuggestion(suggestion)}
-                  >
-                    Use This
-                  </Button>
-                </div>
-              ))}
+    <MainLayout>
+      <div className="container mx-auto p-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/accounting/tax-reports')}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
+              </Button>
+              <h1 className="text-2xl font-bold tracking-tight">Generate Tax Report</h1>
             </div>
-          </AlertDescription>
-        </Alert>
-      )}
+            <p className="text-sm text-muted-foreground">
+              Create a new tax return with automatic calculation or manual entry
+            </p>
+          </div>
+        </div>
 
-      {/* Main Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Tax Return Details</CardTitle>
-          <CardDescription>
-            Enter the basic information for the tax return
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              {/* Type Selection */}
-              <FormField
-                control={form.control}
-                name="type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tax Return Type</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select tax type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="VAT">Value Added Tax (VAT)</SelectItem>
-                        <SelectItem value="Employee_Tax">Employee Tax (PAYE)</SelectItem>
-                        <SelectItem value="Provisional_Tax">Provisional Tax</SelectItem>
-                        <SelectItem value="Income_Tax">Income Tax</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      Select the type of tax return to generate
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Date Fields */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Period Start */}
-                <FormField
-                  control={form.control}
-                  name="period_start"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Period Start</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                'w-full pl-3 text-left font-normal',
-                                !field.value && 'text-muted-foreground'
-                              )}
-                            >
-                              {field.value ? formatDate(field.value) : 'Pick a date'}
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            disabled={(date) =>
-                              date > new Date() || date < new Date('1900-01-01')
-                            }
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* Period End */}
-                <FormField
-                  control={form.control}
-                  name="period_end"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Period End</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                'w-full pl-3 text-left font-normal',
-                                !field.value && 'text-muted-foreground'
-                              )}
-                            >
-                              {field.value ? formatDate(field.value) : 'Pick a date'}
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            disabled={(date) =>
-                              date > new Date() || date < new Date('1900-01-01')
-                            }
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* Due Date */}
-                <FormField
-                  control={form.control}
-                  name="due_date"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Due Date</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                'w-full pl-3 text-left font-normal',
-                                !field.value && 'text-muted-foreground'
-                              )}
-                            >
-                              {field.value ? formatDate(field.value) : 'Pick a date'}
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              {/* Preview Button */}
-              {selectedType === 'VAT' && periodStart && periodEnd && (
-                <div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => setShowPreview(true)}
+        {/* Upcoming Suggestions */}
+        {upcomingReturns.length > 0 && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertTitle>Upcoming Tax Returns</AlertTitle>
+            <AlertDescription>
+              <p className="mb-3">Select from suggested upcoming tax returns:</p>
+              <div className="space-y-2">
+                {upcomingReturns.map((suggestion, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-3 bg-background border rounded-lg"
                   >
-                    Show Calculated Preview
-                  </Button>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Preview calculated VAT amounts based on current ledger balances
-                  </p>
-                </div>
-              )}
-
-              <Separator />
-
-              {/* Line Items Section */}
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-lg font-semibold">Line Items</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {showPreview && lineItems.length > 0
-                      ? 'Review and modify calculated line items, or add manual entries'
-                      : 'Add manual line items (optional) or use automatic calculation'}
-                  </p>
-                </div>
-
-                {/* Line Items Table */}
-                {lineItems.length > 0 && (
-                  <Card>
-                    <CardContent className="pt-6">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Description</TableHead>
-                            <TableHead>Account ID</TableHead>
-                            <TableHead className="text-right">Amount</TableHead>
-                            <TableHead className="w-20"></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {lineItems.map((line) => (
-                            <TableRow key={line.id}>
-                              <TableCell>{line.description}</TableCell>
-                              <TableCell>{line.account_id || '-'}</TableCell>
-                              <TableCell className="text-right font-medium">
-                                {formatCurrency(line.amount)}
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleRemoveLine(line.id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                          <TableRow>
-                            <TableCell colSpan={2} className="font-bold">
-                              Total
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {formatCurrency(calculateTotal())}
-                            </TableCell>
-                            <TableCell></TableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Add Line Item Form */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Add Line Item</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="md:col-span-2">
-                        <Label htmlFor="line-description">Description</Label>
-                        <Input
-                          id="line-description"
-                          value={newLineDescription}
-                          onChange={(e) => setNewLineDescription(e.target.value)}
-                          placeholder="e.g., Output VAT"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="line-account">Account ID (Optional)</Label>
-                        <Input
-                          id="line-account"
-                          type="number"
-                          value={newLineAccount}
-                          onChange={(e) => setNewLineAccount(e.target.value)}
-                          placeholder="e.g., 2100"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="line-amount">Amount (ZAR)</Label>
-                        <Input
-                          id="line-amount"
-                          type="number"
-                          step="0.01"
-                          value={newLineAmount}
-                          onChange={(e) => setNewLineAmount(e.target.value)}
-                          placeholder="0.00"
-                        />
-                      </div>
+                    <div className="flex-1">
+                      <p className="font-medium">{getTypeName(suggestion.type)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Period: {formatDate(new Date(suggestion.period_start))} - {formatDate(new Date(suggestion.period_end))}
+                        {' '} | Due: {formatDate(new Date(suggestion.due_date))}
+                      </p>
+                      <p className="text-sm font-medium mt-1">
+                        Suggested Amount: {formatCurrency(suggestion.suggested_amount)}
+                      </p>
                     </div>
                     <Button
-                      type="button"
                       variant="outline"
-                      className="mt-4"
-                      onClick={handleAddLine}
+                      size="sm"
+                      onClick={() => handleSelectSuggestion(suggestion)}
                     >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Line Item
+                      Use This
                     </Button>
-                  </CardContent>
-                </Card>
+                  </div>
+                ))}
               </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
-              <Separator />
+        {/* Main Form */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Tax Return Details</CardTitle>
+            <CardDescription>
+              Enter the basic information for the tax return
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                {/* Type Selection */}
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tax Return Type</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select tax type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="VAT">Value Added Tax (VAT)</SelectItem>
+                          <SelectItem value="Employee_Tax">Employee Tax (PAYE)</SelectItem>
+                          <SelectItem value="Provisional_Tax">Provisional Tax</SelectItem>
+                          <SelectItem value="Income_Tax">Income Tax</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Select the type of tax return to generate
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-              {/* Form Actions */}
-              <div className="flex gap-4">
-                <Button
-                  type="submit"
-                  disabled={createMutation.isLoading}
-                >
-                  {createMutation.isLoading ? 'Creating...' : 'Save as Draft'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => navigate('/accounting/tax-reports')}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-    </div>
+                {/* Date Fields */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Period Start */}
+                  <FormField
+                    control={form.control}
+                    name="period_start"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Period Start</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant="outline"
+                                className={cn(
+                                  'w-full pl-3 text-left font-normal',
+                                  !field.value && 'text-muted-foreground'
+                                )}
+                              >
+                                {field.value ? formatDate(field.value) : 'Pick a date'}
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              disabled={(date) =>
+                                date > new Date() || date < new Date('1900-01-01')
+                              }
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Period End */}
+                  <FormField
+                    control={form.control}
+                    name="period_end"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Period End</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant="outline"
+                                className={cn(
+                                  'w-full pl-3 text-left font-normal',
+                                  !field.value && 'text-muted-foreground'
+                                )}
+                              >
+                                {field.value ? formatDate(field.value) : 'Pick a date'}
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              disabled={(date) =>
+                                date > new Date() || date < new Date('1900-01-01')
+                              }
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Due Date */}
+                  <FormField
+                    control={form.control}
+                    name="due_date"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Due Date</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant="outline"
+                                className={cn(
+                                  'w-full pl-3 text-left font-normal',
+                                  !field.value && 'text-muted-foreground'
+                                )}
+                              >
+                                {field.value ? formatDate(field.value) : 'Pick a date'}
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {/* Preview Button */}
+                {selectedType === 'VAT' && periodStart && periodEnd && (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => setShowPreview(true)}
+                    >
+                      Show Calculated Preview
+                    </Button>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Preview calculated VAT amounts based on current ledger balances
+                    </p>
+                  </div>
+                )}
+
+                <Separator />
+
+                {/* Line Items Section */}
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-lg font-semibold">Line Items</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {showPreview && lineItems.length > 0
+                        ? 'Review and modify calculated line items, or add manual entries'
+                        : 'Add manual line items (optional) or use automatic calculation'}
+                    </p>
+                  </div>
+
+                  {/* Line Items Table */}
+                  {lineItems.length > 0 && (
+                    <Card>
+                      <CardContent className="pt-6">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Description</TableHead>
+                              <TableHead>Account ID</TableHead>
+                              <TableHead className="text-right">Amount</TableHead>
+                              <TableHead className="w-20"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {lineItems.map((line) => (
+                              <TableRow key={line.id}>
+                                <TableCell>{line.description}</TableCell>
+                                <TableCell>{line.account_id || '-'}</TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {formatCurrency(line.amount)}
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRemoveLine(line.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            <TableRow>
+                              <TableCell colSpan={2} className="font-bold">
+                                Total
+                              </TableCell>
+                              <TableCell className="text-right font-bold">
+                                {formatCurrency(calculateTotal())}
+                              </TableCell>
+                              <TableCell></TableCell>
+                            </TableRow>
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Add Line Item Form */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Add Line Item</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="md:col-span-2">
+                          <Label htmlFor="line-description">Description</Label>
+                          <Input
+                            id="line-description"
+                            value={newLineDescription}
+                            onChange={(e) => setNewLineDescription(e.target.value)}
+                            placeholder="e.g., Output VAT"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="line-account">Account ID (Optional)</Label>
+                          <Input
+                            id="line-account"
+                            type="number"
+                            value={newLineAccount}
+                            onChange={(e) => setNewLineAccount(e.target.value)}
+                            placeholder="e.g., 2100"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="line-amount">Amount (ZAR)</Label>
+                          <Input
+                            id="line-amount"
+                            type="number"
+                            step="0.01"
+                            value={newLineAmount}
+                            onChange={(e) => setNewLineAmount(e.target.value)}
+                            placeholder="0.00"
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-4"
+                        onClick={handleAddLine}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Line Item
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Separator />
+
+                {/* Form Actions */}
+                <div className="flex gap-4">
+                  <Button
+                    type="submit"
+                    disabled={createMutation.isLoading}
+                  >
+                    {createMutation.isLoading ? 'Creating...' : 'Save as Draft'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate('/accounting/tax-reports')}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </CardContent>
+        </Card>
+      </div>
+    </MainLayout>
   );
 };
 
