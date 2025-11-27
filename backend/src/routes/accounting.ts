@@ -416,10 +416,12 @@ router.delete('/journals/:id', authorize(['admin']), requireSupabase, async (req
     }
 
     const deletedBy = Number(req.headers['x-user-id']) || null;
-    const { data, error } = await req.db.rpc('fn_delete_journal', {
-      p_journal_id: journalId,
-      p_deleted_by: deletedBy
-    });
+    const { rows } = await req.pg.query(
+      'SELECT accounting.fn_delete_journal($1, $2) as result',
+      [journalId, deletedBy]
+    );
+    const data = rows[0]?.result;
+    const error = null;
 
     if (error) {
       throw { status: 500, code: 'DB_ERROR', message: error.message };
@@ -590,6 +592,147 @@ router.post('/journals/:id/refund-paid', authorize(['admin', 'accountant']), req
     res.json(data);
   } catch (err) { next(err); }
 });
+
+// Get debit/credit/MMFS income summary for a debit note
+router.get(
+  '/debit-credit-summary/:id',
+  authorize(['admin', 'accountant', 'editor', 'viewer']),
+  async (req: any, res: any, next: any) => {
+    try {
+      if (!req.pg) {
+        throw {
+          status: 500,
+          code: 'PG_UNAVAILABLE',
+          message: 'Postgres client not available on request object',
+        };
+      }
+
+      const debitNoteId = Number(req.params.id);
+      if (!debitNoteId) {
+        throw { status: 400, code: 'INVALID_ID', message: 'valid debit note id required' };
+      }
+
+      // Summary row from view
+      const summaryResult = await req.pg.query(
+        `SELECT *
+         FROM accounting.vw_debit_credit_summary
+         WHERE debit_note_id = $1`,
+        [debitNoteId]
+      );
+
+      if (summaryResult.rows.length === 0) {
+        throw { status: 404, code: 'NOT_FOUND', message: 'debit note summary not found' };
+      }
+
+      const summary = summaryResult.rows[0];
+
+      // Linked credit applications
+      const creditsResult = await req.pg.query(
+        `SELECT
+           na.credit_note_id,
+           jc.reference        AS credit_reference,
+           jc.date             AS credit_date,
+           na.amount
+         FROM accounting.note_applications na
+         JOIN accounting.journals jc
+           ON jc.id = na.credit_note_id
+         WHERE na.debit_note_id = $1
+         ORDER BY jc.date ASC, jc.id ASC`,
+        [debitNoteId]
+      );
+
+      res.json({
+        summary,
+        credits: creditsResult.rows || [],
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Finalise MMFS income for a debit note
+router.post(
+  '/journals/:id/finalize-debit-income',
+  authorize(['admin', 'accountant']),
+  async (req: any, res: any, next: any) => {
+    try {
+      if (!req.pg) {
+        throw {
+          status: 500,
+          code: 'PG_UNAVAILABLE',
+          message: 'Postgres client not available on request object',
+        };
+      }
+
+      const debitNoteId = Number(req.params.id);
+      if (!debitNoteId) {
+        throw { status: 400, code: 'INVALID_ID', message: 'valid debit note id required' };
+      }
+
+      const { mmfs_income_account_id, balancing_account_id, notes } = req.body || {};
+
+      if (!mmfs_income_account_id || !balancing_account_id) {
+        throw {
+          status: 400,
+          code: 'INVALID_BODY',
+          message: 'mmfs_income_account_id and balancing_account_id are required',
+        };
+      }
+
+      const createdBy = Number(req.headers['x-user-id']) || null;
+
+      const result = await req.pg.query(
+        'SELECT accounting.fn_finalize_debit_note($1, $2, $3, $4, $5) AS result',
+        [
+          debitNoteId,
+          Number(mmfs_income_account_id),
+          Number(balancing_account_id),
+          createdBy,
+          notes || null,
+        ]
+      );
+
+      const row = result.rows?.[0]?.result;
+      if (!row) {
+        throw {
+          status: 500,
+          code: 'DB_ERROR',
+          message: 'fn_finalize_debit_note returned no result',
+        };
+      }
+
+      // If function indicates no income, surface as 400 to match business rule
+      if (row.success === false) {
+        throw {
+          status: 400,
+          code: 'NO_INCOME',
+          message: row.message || 'No MMFS income to recognise for this debit note',
+        };
+      }
+
+      res.json(row);
+    } catch (err: any) {
+      // Map known DB errors to 400 when they represent business rule violations
+      if (
+        err?.message &&
+        (String(err.message).includes('not a debit note') ||
+          String(err.message).includes('cannot finalize income') ||
+          String(err.message).includes('already been finalized') ||
+          String(err.message).includes('exceed debit note amount') ||
+          String(err.message).includes('has no credit notes applied'))
+      ) {
+        return next({
+          status: 400,
+          code: 'INVALID_OPERATION',
+          message: err.message,
+        });
+      }
+
+      next(err);
+    }
+  }
+);
 
 // Export note as PDF
 router.get('/journals/:id/pdf', authorize(['admin', 'accountant', 'viewer']), requireSupabase, async (req: any, res: any, next: any) => {

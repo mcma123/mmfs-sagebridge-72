@@ -212,11 +212,11 @@ BEGIN
     WHERE id = p_journal_id;
 
     v_result := json_build_object(
-        'success', true,
-        'journal_id', p_journal_id,
-        'payment_journal_id', v_payment_journal_id,
-        'amount', v_total_amount,
-        'payment_reference', v_payment_reference
+        'success'::text, true,
+        'journal_id'::text, p_journal_id,
+        'payment_journal_id'::text, v_payment_journal_id,
+        'amount'::text, v_total_amount,
+        'payment_reference'::text, v_payment_reference
     );
 
     RETURN v_result;
@@ -351,14 +351,14 @@ BEGIN
     WHERE id = p_journal_id;
 
     v_result := json_build_object(
-        'success', true,
-        'journal_id', p_journal_id,
-        'payment_journal_id', v_payment_journal_id,
-        'amount', p_amount,
-        'total_paid', v_new_paid_amount,
-        'remaining', v_total_amount - v_new_paid_amount,
-        'status', v_new_status,
-        'payment_reference', v_payment_reference
+        'success'::text, true,
+        'journal_id'::text, p_journal_id,
+        'payment_journal_id'::text, v_payment_journal_id,
+        'amount'::text, p_amount,
+        'total_paid'::text, v_new_paid_amount,
+        'remaining'::text, v_total_amount - v_new_paid_amount,
+        'status'::text, v_new_status,
+        'payment_reference'::text, v_payment_reference
     );
 
     RETURN v_result;
@@ -408,9 +408,9 @@ BEGIN
       AND reconciled_at IS NULL;
 
     v_result := json_build_object(
-        'success', true,
-        'journal_id', p_journal_id,
-        'reconciled_at', NOW()
+        'success'::text, true,
+        'journal_id'::text, p_journal_id,
+        'reconciled_at'::text, NOW()
     );
 
     RETURN v_result;
@@ -436,6 +436,8 @@ DECLARE
     v_ar_account_id INTEGER;
     v_credit_total DECIMAL(15,2);
     v_debit_total DECIMAL(15,2);
+    v_existing_credit_allocated DECIMAL(15,2);
+    v_existing_debit_allocated DECIMAL(15,2);
     v_result JSON;
 BEGIN
     -- Get credit note details
@@ -481,17 +483,36 @@ BEGIN
     FROM accounting.journal_lines
     WHERE journal_id = p_debit_note_id AND debit > 0;
 
+    -- Current allocations for this credit note and this debit note
+    SELECT COALESCE(SUM(amount), 0) INTO v_existing_credit_allocated
+    FROM accounting.note_applications
+    WHERE credit_note_id = p_credit_note_id;
+
+    SELECT COALESCE(SUM(amount), 0) INTO v_existing_debit_allocated
+    FROM accounting.note_applications
+    WHERE debit_note_id = p_debit_note_id;
+
     -- Validate amount
     IF p_amount <= 0 THEN
         RAISE EXCEPTION 'Application amount must be greater than zero';
     END IF;
 
+    -- Basic ceiling checks against total credit/debit amounts
     IF p_amount > v_credit_total THEN
         RAISE EXCEPTION 'Application amount exceeds credit note total';
     END IF;
 
     IF p_amount > v_debit_total THEN
         RAISE EXCEPTION 'Application amount exceeds debit note total';
+    END IF;
+
+    -- Cumulative checks to ensure total applications never exceed note amounts
+    IF v_existing_credit_allocated + p_amount > v_credit_total THEN
+        RAISE EXCEPTION 'Application amount exceeds remaining credit note balance';
+    END IF;
+
+    IF v_existing_debit_allocated + p_amount > v_debit_total THEN
+        RAISE EXCEPTION 'Application amount exceeds remaining debit note balance';
     END IF;
 
     -- Get AP account from credit note (credit side)
@@ -579,12 +600,12 @@ BEGIN
     WHERE id = p_debit_note_id;
 
     v_result := json_build_object(
-        'success', true,
-        'credit_note_id', p_credit_note_id,
-        'debit_note_id', p_debit_note_id,
-        'application_journal_id', v_application_journal_id,
-        'amount', p_amount,
-        'application_reference', v_application_reference
+        'success'::text, true,
+        'credit_note_id'::text, p_credit_note_id,
+        'debit_note_id'::text, p_debit_note_id,
+        'application_journal_id'::text, v_application_journal_id,
+        'amount'::text, p_amount,
+        'application_reference'::text, v_application_reference
     );
 
     RETURN v_result;
@@ -706,11 +727,11 @@ BEGIN
     WHERE id = p_journal_id;
 
     v_result := json_build_object(
-        'success', true,
-        'journal_id', p_journal_id,
-        'payment_journal_id', v_payment_journal_id,
-        'amount', v_total_amount,
-        'payment_reference', v_payment_reference
+        'success'::text, true,
+        'journal_id'::text, p_journal_id,
+        'payment_journal_id'::text, v_payment_journal_id,
+        'amount'::text, v_total_amount,
+        'payment_reference'::text, v_payment_reference
     );
 
     RETURN v_result;
@@ -753,10 +774,179 @@ BEGIN
     DELETE FROM accounting.journals WHERE id = p_journal_id;
 
     v_result := json_build_object(
-        'success', true,
-        'journal_id', p_journal_id,
-        'deleted_at', NOW(),
-        'deleted_by', p_deleted_by
+        'success'::text, true,
+        'journal_id'::text, p_journal_id,
+        'deleted_at'::text, NOW(),
+        'deleted_by'::text, p_deleted_by
+    );
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =====================================================
+-- DEBIT/CREDIT SUMMARY VIEW AND FINALISE FUNCTION
+-- =====================================================
+
+-- View: Debit/Credit/Income summary per debit note
+CREATE OR REPLACE VIEW accounting.vw_debit_credit_summary AS
+WITH debit_notes AS (
+    SELECT
+        j.id AS debit_note_id,
+        j.reference AS debit_reference,
+        j.date AS debit_date,
+        COALESCE(SUM(CASE WHEN l.debit > 0 THEN l.debit ELSE 0 END), 0) AS debit_total
+    FROM accounting.journals j
+    JOIN accounting.journal_lines l ON l.journal_id = j.id
+    WHERE j.reference LIKE 'DN-%'
+      AND j.voided_at IS NULL
+    GROUP BY j.id, j.reference, j.date
+),
+credit_applications AS (
+    SELECT
+        na.debit_note_id,
+        COALESCE(SUM(na.amount), 0) AS total_credits_allocated
+    FROM accounting.note_applications na
+    JOIN accounting.journals jd ON jd.id = na.debit_note_id
+    WHERE jd.voided_at IS NULL
+    GROUP BY na.debit_note_id
+)
+SELECT
+    d.debit_note_id,
+    d.debit_reference,
+    d.debit_date,
+    d.debit_total,
+    COALESCE(c.total_credits_allocated, 0) AS total_credits_allocated,
+    d.debit_total - COALESCE(c.total_credits_allocated, 0) AS remaining_amount,
+    d.debit_total - COALESCE(c.total_credits_allocated, 0) AS mmfs_income
+FROM debit_notes d
+LEFT JOIN credit_applications c ON c.debit_note_id = d.debit_note_id;
+
+-- Function: Finalize Debit Note Income
+CREATE OR REPLACE FUNCTION accounting.fn_finalize_debit_note(
+    p_debit_note_id INTEGER,
+    p_mmfs_income_account_id INTEGER,
+    p_balancing_account_id INTEGER,
+    p_created_by INTEGER,
+    p_notes TEXT DEFAULT NULL
+)
+RETURNS JSON AS $$
+DECLARE
+    v_debit_note RECORD;
+    v_debit_total DECIMAL(15,2);
+    v_total_credits_allocated DECIMAL(15,2);
+    v_mmfs_income DECIMAL(15,2);
+    v_income_journal_id INTEGER;
+    v_income_reference TEXT;
+    v_existing_income_journal_id INTEGER;
+    v_result JSON;
+BEGIN
+    -- Fetch debit note
+    SELECT * INTO v_debit_note
+    FROM accounting.journals
+    WHERE id = p_debit_note_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Debit note not found: %', p_debit_note_id;
+    END IF;
+
+    IF v_debit_note.reference NOT LIKE 'DN-%' THEN
+        RAISE EXCEPTION 'Journal % is not a debit note', p_debit_note_id;
+    END IF;
+
+    IF v_debit_note.voided_at IS NOT NULL THEN
+        RAISE EXCEPTION 'Cannot finalize income for a voided debit note';
+    END IF;
+
+    -- Prevent double finalisation based on existing income journal reference
+    v_income_reference := 'INC-' || v_debit_note.reference;
+
+    SELECT id INTO v_existing_income_journal_id
+    FROM accounting.journals
+    WHERE reference = v_income_reference
+    LIMIT 1;
+
+    IF FOUND THEN
+        RAISE EXCEPTION 'Income has already been finalized for debit note %', v_debit_note.reference;
+    END IF;
+
+    -- Compute debit total
+    SELECT COALESCE(SUM(debit), 0) INTO v_debit_total
+    FROM accounting.journal_lines
+    WHERE journal_id = p_debit_note_id
+      AND debit > 0;
+
+    IF v_debit_total <= 0 THEN
+        RAISE EXCEPTION 'Debit note % has no debit amount', v_debit_note.reference;
+    END IF;
+
+    -- Compute total credits allocated to this debit note
+    SELECT COALESCE(SUM(amount), 0) INTO v_total_credits_allocated
+    FROM accounting.note_applications
+    WHERE debit_note_id = p_debit_note_id;
+
+    IF v_total_credits_allocated <= 0 THEN
+        RAISE EXCEPTION 'Debit note % has no credit notes applied and cannot be finalized', v_debit_note.reference;
+    END IF;
+
+    IF v_total_credits_allocated > v_debit_total THEN
+        RAISE EXCEPTION 'Total credits (%) exceed debit note amount (%)',
+            v_total_credits_allocated, v_debit_total;
+    END IF;
+
+    v_mmfs_income := v_debit_total - v_total_credits_allocated;
+
+    IF v_mmfs_income <= 0 THEN
+        -- Nothing to recognize as income
+        v_result := json_build_object(
+            'success'::text, false,
+            'debit_note_id'::text, p_debit_note_id,
+            'message'::text, 'No MMFS income to recognize for this debit note'
+        );
+        RETURN v_result;
+    END IF;
+
+    -- Create MMFS Income journal
+    INSERT INTO accounting.journals (date, reference, description, created_by, payment_status)
+    VALUES (
+        v_debit_note.date,
+        v_income_reference,
+        'MMFS Income for ' || v_debit_note.reference,
+        p_created_by,
+        'n/a'
+    )
+    RETURNING id INTO v_income_journal_id;
+
+    -- DR balancing account
+    INSERT INTO accounting.journal_lines (journal_id, account_id, date, debit, credit, memo)
+    VALUES (
+        v_income_journal_id,
+        p_balancing_account_id,
+        v_debit_note.date,
+        v_mmfs_income,
+        0,
+        COALESCE(p_notes, 'MMFS income balancing entry')
+    );
+
+    -- CR MMFS Income account
+    INSERT INTO accounting.journal_lines (journal_id, account_id, date, debit, credit, memo)
+    VALUES (
+        v_income_journal_id,
+        p_mmfs_income_account_id,
+        v_debit_note.date,
+        0,
+        v_mmfs_income,
+        COALESCE(p_notes, 'MMFS income recognized from debit note ' || v_debit_note.reference)
+    );
+
+    v_result := json_build_object(
+        'success'::text, true,
+        'debit_note_id'::text, p_debit_note_id,
+        'debit_total'::text, v_debit_total,
+        'total_credits_allocated'::text, v_total_credits_allocated,
+        'mmfs_income'::text, v_mmfs_income,
+        'income_journal_id'::text, v_income_journal_id,
+        'income_reference'::text, v_income_reference
     );
 
     RETURN v_result;
@@ -780,6 +970,10 @@ GRANT EXECUTE ON FUNCTION accounting.fn_reconcile_payment TO authenticated;
 GRANT EXECUTE ON FUNCTION accounting.fn_apply_credit_to_debit TO authenticated;
 GRANT EXECUTE ON FUNCTION accounting.fn_mark_refund_paid TO authenticated;
 GRANT EXECUTE ON FUNCTION accounting.fn_delete_journal TO authenticated;
+GRANT EXECUTE ON FUNCTION accounting.fn_finalize_debit_note TO authenticated;
+
+-- Grant select on summary view
+GRANT SELECT ON accounting.vw_debit_credit_summary TO authenticated;
 
 -- =====================================================
 -- MIGRATION COMPLETE

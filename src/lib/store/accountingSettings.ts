@@ -7,6 +7,9 @@ export type AccountingDefaults = {
   apAccountId?: number | null;
   premiumRefundAccountId?: number | null;
   deductionIncomeAccountId?: number | null;
+  // MMFS-specific settings
+  mmfsIncomeAccountId?: number | null;
+  mmfsIncomeBalancingAccountId?: number | null;
 };
 
 const LS_KEY = 'accounting_defaults_v1';

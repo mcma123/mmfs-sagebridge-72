@@ -94,7 +94,7 @@ export function buildDebitJournal(
       date: postDateISO,
       debit: netDue,
       credit: 0,
-      memo: JSON.stringify({ ...memoBase, kind: 'AR', netDue }),
+      memo: JSON.stringify({ ...memoBase, kind: 'AR', netDue, form }),
     },
     {
       account_id: accounts.premiumIncomeAccountId,
@@ -158,7 +158,7 @@ export function buildCreditJournal(
       date: postDateISO,
       debit: 0,
       credit: netDueToYou,
-      memo: JSON.stringify({ ...memoBase, kind: 'AP', netDueToYou }),
+      memo: JSON.stringify({ ...memoBase, kind: 'AP', netDueToYou, form }),
     },
     {
       account_id: accounts.premiumRefundAccountId,

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import MainLayout from '@/components/layout/MainLayout';
@@ -33,8 +34,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const PaymentReconciliation = () => {
   // State
+  const [searchParams] = useSearchParams();
   const [selectedPayment, setSelectedPayment] = useState<BankTransaction | null>(null);
-  const [searchOutstanding, setSearchOutstanding] = useState('');
+  const [searchOutstanding, setSearchOutstanding] = useState(searchParams.get('search') || '');
   const [searchPayment, setSearchPayment] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -348,11 +350,10 @@ const PaymentReconciliation = () => {
                   <div
                     key={payment.id}
                     onClick={() => setSelectedPayment(payment)}
-                    className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                      selectedPayment?.id === payment.id
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-primary/50 hover:bg-muted/50'
-                    }`}
+                    className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedPayment?.id === payment.id
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                      }`}
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div>

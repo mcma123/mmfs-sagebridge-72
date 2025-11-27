@@ -68,6 +68,17 @@ const CreateDebitNote = () => {
       currency: 'USD',
       paymentTerms: '90 Days from the due date',
       commissionPercentage: '32.50',
+      issuedTo: '',
+      issuedToAddress: '',
+      insured: '',
+      coverType: '',
+      policyRef: '',
+      periodFrom: '',
+      periodTo: '',
+      grossPremium: '',
+      ourSharePercentage: '',
+      preparedBy: '',
+      notes: '',
     },
   });
 
@@ -112,7 +123,8 @@ const CreateDebitNote = () => {
         description: `Journal #${resp.journal_id} created successfully.`,
       });
 
-      navigate('/debit-credit-notes');
+      // After creating a debit note, go to the Debit Note Credits wizard
+      navigate(`/notes/debit/${resp.journal_id}/credits`);
     } catch (err: any) {
       toast({ title: 'Failed to post debit note', description: String(err?.message || err) });
     }
@@ -129,7 +141,7 @@ const CreateDebitNote = () => {
         <div className="relative bg-primary text-primary-foreground rounded-lg overflow-hidden shadow-xl">
           <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary/90" />
           <div className="absolute right-0 top-0 h-full w-1/3 bg-secondary transform skew-x-[-15deg] origin-top-right" />
-          
+
           <div className="relative p-6">
             <div className="flex items-center gap-6 mb-4">
               <img src={mmfsLogo} alt="MMFS Logo" className="h-16 w-auto object-contain bg-white/95 rounded-lg p-2 shadow-lg" />
@@ -138,8 +150,8 @@ const CreateDebitNote = () => {
                 <p className="text-primary-foreground/90 mt-1">Marine Insurance Premium Adjustment</p>
               </div>
             </div>
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               onClick={() => navigate('/debit-credit-notes')}
               className="text-primary-foreground hover:bg-white/20"
             >
@@ -181,7 +193,7 @@ const CreateDebitNote = () => {
                     <FormItem>
                       <FormLabel>Address *</FormLabel>
                       <FormControl>
-                        <Textarea 
+                        <Textarea
                           placeholder="Full address of the entity"
                           rows={3}
                           {...field}
@@ -477,7 +489,7 @@ const CreateDebitNote = () => {
                     <FormItem>
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
-                        <Textarea 
+                        <Textarea
                           placeholder="Additional notes or comments"
                           rows={3}
                           {...field}
@@ -500,8 +512,8 @@ const CreateDebitNote = () => {
               >
                 Cancel
               </Button>
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 className="bg-secondary hover:bg-secondary/90 text-secondary-foreground shadow-lg hover:shadow-xl transition-all"
               >
                 <Save className="h-4 w-4 mr-2" />

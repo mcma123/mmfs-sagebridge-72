@@ -332,9 +332,9 @@ export async function getLedger(params: { accountId?: number; start?: string; en
   return apiFetch<{ items: LedgerEntryDTO[]; total?: number }>(path, { method: 'GET' }, role);
 }
 
- // ============================================================================
- // PERIOD-END AND YEAR-END CHECKLIST
- // ============================================================================
+// ============================================================================
+// PERIOD-END AND YEAR-END CHECKLIST
+// ============================================================================
 
 export type PeriodStatus = 'Closed' | 'In Progress' | 'Future';
 
@@ -355,6 +355,8 @@ export type PeriodDTO = {
   updated_at?: string;
 };
 
+export type YearEndTaskStatus = 'todo' | 'in_progress' | 'review' | 'done';
+
 export type YearEndTaskDTO = {
   id: number;
   fiscal_year: number;
@@ -366,6 +368,18 @@ export type YearEndTaskDTO = {
   order_index: number;
   created_at?: string;
   updated_at?: string;
+  status?: YearEndTaskStatus;
+  assignee_id?: number | null;
+  due_date?: string | null;
+  description?: string | null;
+};
+
+export type PlannerStatsDTO = {
+  total_tasks: number;
+  completed_tasks: number;
+  overdue_tasks: number;
+  tasks_by_status: Record<YearEndTaskStatus, number>;
+  completion_percentage: number;
 };
 
 // Get accounting periods (optionally filtered by year)
@@ -421,16 +435,30 @@ export async function getYearEndChecklist(
 // Update year-end checklist task completion
 export async function updateYearEndTask(
   id: number,
-  completed: boolean,
+  updates: Partial<YearEndTaskDTO>,
   role: Role = 'accountant',
   userId?: number
 ) {
   return apiFetch<YearEndTaskDTO>(
     `/year-end-checklist/${id}`,
-    { method: 'PATCH', body: JSON.stringify({ completed }) },
+    { method: 'PATCH', body: JSON.stringify(updates) },
     role,
     userId
   );
+}
+
+// Get planner statistics
+export async function getPlannerStats(
+  params?: { year?: number },
+  role: Role = 'accountant'
+) {
+  const qs = new URLSearchParams();
+  if (params?.year) {
+    qs.set('year', String(params.year));
+  }
+  const q = qs.toString();
+  const path = `/year-end-checklist/stats${q ? `?${q}` : ''}`;
+  return apiFetch<PlannerStatsDTO>(path, { method: 'GET' }, role);
 }
 
 // ============================================================================
@@ -811,55 +839,91 @@ export async function exportNotePDF(id: number, role: Role = 'accountant'): Prom
   const response = await fetch(url, { method: 'GET', headers });
 
   if (!response.ok) {
-    let errorMessage = `${response.status} ${response.statusText}`;
-    try {
-      const errorData = await response.json();
-      if (errorData && (errorData.message || errorData.error)) {
-        errorMessage = errorData.message || errorData.error;
-      }
-    } catch {
-      // Ignore
-    }
-    throw new Error(errorMessage);
+    throw new Error(`${response.status} ${response.statusText}`);
   }
 
   return response.blob();
 }
 
 // ============================================================================
-// PAYMENT RECONCILIATION API FUNCTIONS
+// DEBIT/CREDIT SUMMARY & MMFS INCOME FINALISATION
 // ============================================================================
 
-// Types for reconciliation
-export type OutstandingReceivable = {
-  journal_id: number;
-  reference: string;
-  journal_date: string;
-  description: string;
-  entity_name: string | null;
-  entity_id: number | null;
-  total_amount: number;
-  paid_amount: number;
-  outstanding_amount: number;
-  payment_status: string;
-  recorded_at: string | null;
-  received_at: string | null;
-  days_outstanding: number;
-  aging_bucket: string;
+export type DebitCreditSummaryRow = {
+  debit_note_id: number;
+  debit_reference: string;
+  debit_date: string;
+  debit_total: number;
+  total_credits_allocated: number;
+  remaining_amount: number;
+  mmfs_income: number;
 };
 
-export type AvailableCredit = {
-  journal_id: number;
-  reference: string;
-  journal_date: string;
-  description: string;
-  entity_name: string | null;
-  entity_id: number | null;
-  total_amount: number;
-  applied_amount: number;
-  available_amount: number;
-  payment_status: string;
+export type DebitCreditLinkedCredit = {
+  credit_note_id: number;
+  credit_reference: string;
+  credit_date: string;
+  amount: number;
 };
+
+export type DebitCreditSummaryResponse = {
+  summary: DebitCreditSummaryRow;
+  credits: DebitCreditLinkedCredit[];
+};
+
+export type FinalizeDebitIncomeRequest = {
+  mmfs_income_account_id: number;
+  balancing_account_id: number;
+  notes?: string;
+};
+
+export type FinalizeDebitIncomeResponse = {
+  success: boolean;
+  debit_note_id: number;
+  debit_total: number;
+  total_credits_allocated: number;
+  mmfs_income: number;
+  income_journal_id: number;
+  income_reference: string;
+};
+
+/**
+ * Get debit/credit/MMFS income summary for a specific debit note.
+ */
+export async function getDebitCreditSummary(
+  debitNoteId: number,
+  role: Role = 'accountant',
+  userId?: number
+): Promise<DebitCreditSummaryResponse> {
+  return apiFetch<DebitCreditSummaryResponse>(
+    `/debit-credit-summary/${debitNoteId}`,
+    { method: 'GET' },
+    role,
+    userId
+  );
+}
+
+/**
+ * Finalise MMFS income for a debit note. This will create a new income journal
+ * (CR MMFS Income, DR balancing account) for Income = Debit - Total Credits.
+ */
+export async function finalizeDebitIncome(
+  debitNoteId: number,
+  payload: FinalizeDebitIncomeRequest,
+  role: Role = 'accountant',
+  userId?: number
+): Promise<FinalizeDebitIncomeResponse> {
+  return apiFetch<FinalizeDebitIncomeResponse>(
+    `/journals/${debitNoteId}/finalize-debit-income`,
+    { method: 'POST', body: JSON.stringify(payload) },
+    role,
+    userId
+  );
+}
+
+// ============================================================================
+// RECONCILIATION
+// ============================================================================
 
 export type BankTransaction = {
   id: number;
@@ -867,6 +931,31 @@ export type BankTransaction = {
   reference: string | null;
   description: string | null;
   amount: number;
+  entity_name: string | null;
+  bank_account_id: number;
+  status: 'unallocated' | 'matched' | 'partially_matched' | 'ignored';
+  match_confidence?: number;
+  created_at: string;
+};
+
+export type OutstandingReceivable = {
+  journal_id: number;
+  reference: string;
+  date: string;
+  description: string;
+  entity_name: string | null;
+  total_amount: number;
+  paid_amount: number;
+  remaining_amount: number;
+  status: 'unpaid' | 'partial';
+  due_date?: string;
+};
+
+export type AvailableCredit = {
+  journal_id: number;
+  reference: string;
+  date: string;
+  description: string;
   entity_name: string | null;
   matched_amount: number;
   unallocated_amount: number;

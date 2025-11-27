@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ArrowLeft, Save } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import mmfsLogo from '@/assets/mmfs-logo.jpg';
-import { getEntities, getAccounts, postJournal, type AccountDTO, type EntityDTO } from '@/lib/api/accounting';
+import { getEntities, getAccounts, postJournal, applyCredit, type AccountDTO, type EntityDTO } from '@/lib/api/accounting';
 import { buildCreditJournal, type CreditNoteFormInput } from '@/lib/accounting/notes';
 import { getAccountingDefaults, saveAccountingDefaults } from '@/lib/store/accountingSettings';
 
@@ -40,7 +40,11 @@ type CreditNoteForm = z.infer<typeof creditNoteSchema>;
 
 const CreateCreditNote = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
+
+  const search = new URLSearchParams(location.search);
+  const parentDebitNoteId = search.get('debitId') ? Number(search.get('debitId')) : null;
 
   const [entities, setEntities] = React.useState<EntityDTO[]>([]);
   const [accounts, setAccounts] = React.useState<AccountDTO[]>([]);
@@ -112,7 +116,38 @@ const CreateCreditNote = () => {
         description: `Journal #${resp.journal_id} created successfully.`,
       });
 
-      navigate('/debit-credit-notes');
+      // If we were launched from a specific debit note, automatically apply this credit
+      if (parentDebitNoteId) {
+        try {
+          await applyCredit(
+            resp.journal_id,
+            {
+              debit_note_id: parentDebitNoteId,
+              amount: netDueToYou,
+              applied_date: postDateISO,
+            },
+            'accountant',
+            1,
+          );
+
+          toast({
+            title: 'Credit Applied',
+            description: `Credit note applied to debit note #${parentDebitNoteId}.`,
+          });
+        } catch (applyErr: any) {
+          console.error('Failed to apply credit automatically', applyErr);
+          toast({
+            title: 'Credit note created but not applied',
+            description: String(applyErr?.message || applyErr),
+            variant: 'destructive',
+          });
+        }
+
+        // Return to the Debit Note Credits wizard for live summary
+        navigate(`/notes/debit/${parentDebitNoteId}/credits`);
+      } else {
+        navigate('/debit-credit-notes');
+      }
     } catch (err: any) {
       toast({ title: 'Failed to post credit note', description: String(err?.message || err) });
     }
@@ -129,7 +164,7 @@ const CreateCreditNote = () => {
         <div className="relative bg-primary text-primary-foreground rounded-lg overflow-hidden shadow-xl">
           <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary/90" />
           <div className="absolute right-0 top-0 h-full w-1/3 bg-secondary transform skew-x-[-15deg] origin-top-right" />
-          
+
           <div className="relative p-6">
             <div className="flex items-center gap-6 mb-4">
               <img src={mmfsLogo} alt="MMFS Logo" className="h-16 w-auto object-contain bg-white/95 rounded-lg p-2 shadow-lg" />
@@ -138,8 +173,8 @@ const CreateCreditNote = () => {
                 <p className="text-primary-foreground/90 mt-1">Marine Insurance Premium Adjustment</p>
               </div>
             </div>
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               onClick={() => navigate('/debit-credit-notes')}
               className="text-primary-foreground hover:bg-white/20"
             >
@@ -181,7 +216,7 @@ const CreateCreditNote = () => {
                     <FormItem>
                       <FormLabel>Address *</FormLabel>
                       <FormControl>
-                        <Textarea 
+                        <Textarea
                           placeholder="Full address of the entity"
                           rows={3}
                           {...field}
@@ -491,7 +526,7 @@ const CreateCreditNote = () => {
                     <FormItem>
                       <FormLabel>Notes</FormLabel>
                       <FormControl>
-                        <Textarea 
+                        <Textarea
                           placeholder="Additional notes or comments"
                           rows={3}
                           {...field}
@@ -514,8 +549,8 @@ const CreateCreditNote = () => {
               >
                 Cancel
               </Button>
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 className="bg-secondary hover:bg-secondary/90 text-secondary-foreground shadow-lg hover:shadow-xl transition-all"
               >
                 <Save className="h-4 w-4 mr-2" />

@@ -16,8 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { getJournals, getJournal, getAccounts, voidJournal, type JournalDTO, type JournalLineDTO, type AccountDTO } from '@/lib/api/accounting';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { getJournals, getAccounts, voidJournal, type JournalDTO, type AccountDTO } from '@/lib/api/accounting';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { getRolesFromToken } from '@/lib/api/auth';
 import { useToast } from '@/hooks/use-toast';
@@ -50,7 +49,7 @@ const DebitCreditNotes = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [journals, setJournals] = useState<JournalDTO[]>([]);
   const [accounts, setAccounts] = useState<AccountDTO[]>([]);
-  const [selected, setSelected] = useState<{ journal: JournalDTO; lines: JournalLineDTO[] } | null>(null);
+
   const [confirmVoidId, setConfirmVoidId] = useState<{ id: number; ref: string } | null>(null);
 
   // Action dialog states
@@ -174,10 +173,9 @@ const DebitCreditNotes = () => {
   }, [journals]);
 
   const handleExportPDF = (journalId: number, reference: string) => {
-    // TODO: Implement PDF export when backend is ready
-    sonnerToast.info('PDF export', {
-      description: 'PDF generation is not yet implemented',
-    });
+    const type = reference.startsWith('DN-') ? 'debit' : 'credit';
+    const url = `/notes/${type}/${journalId}?print=true`;
+    window.open(url, '_blank');
   };
 
   return (
@@ -246,7 +244,7 @@ const DebitCreditNotes = () => {
                   </TableHeader>
                   <TableBody>
                     {debitNotes.map(note => (
-                      <TableRow key={note.id}>
+                      <TableRow key={note.journalId}>
                         <TableCell className="font-medium">{note.id}</TableCell>
                         <TableCell>{note.date}</TableCell>
                         <TableCell>{note.entityName}</TableCell>
@@ -268,20 +266,7 @@ const DebitCreditNotes = () => {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={async () => {
-                                setSelected({
-                                  journal: { id: note.journalId, date: note.date, reference: note.id, description: 'Loading…' },
-                                  lines: [],
-                                });
-                                try {
-                                  const resp = await getJournal(note.journalId);
-                                  setSelected(resp);
-                                } catch (err: any) {
-                                  console.error('Failed to load journal', err);
-                                  toast({ title: 'Could not load', description: 'Failed to fetch journal details.', variant: 'destructive' });
-                                  setSelected(null);
-                                }
-                              }}
+                              onClick={() => navigate(`/notes/debit/${note.journalId}`)}
                             >
                               View
                             </Button>
@@ -308,7 +293,7 @@ const DebitCreditNotes = () => {
                                   </DropdownMenuItem>
                                 )}
                                 {note.paymentStatus === 'unpaid' || note.paymentStatus === 'partial' ? (
-                                  <DropdownMenuItem onClick={() => navigate('/payment-reconciliation')}>
+                                  <DropdownMenuItem onClick={() => navigate(`/payment-reconciliation?search=${note.id}`)}>
                                     View in Reconciliation
                                   </DropdownMenuItem>
                                 ) : null}
@@ -374,7 +359,7 @@ const DebitCreditNotes = () => {
                   </TableHeader>
                   <TableBody>
                     {creditNotes.map(note => (
-                      <TableRow key={note.id}>
+                      <TableRow key={note.journalId}>
                         <TableCell className="font-medium">{note.id}</TableCell>
                         <TableCell>{note.date}</TableCell>
                         <TableCell>{note.entityName}</TableCell>
@@ -396,14 +381,7 @@ const DebitCreditNotes = () => {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={async () => {
-                                try {
-                                  const resp = await getJournal(note.journalId);
-                                  setSelected(resp);
-                                } catch (err) {
-                                  console.error('Failed to load journal', err);
-                                }
-                              }}
+                              onClick={() => navigate(`/notes/credit/${note.journalId}`)}
                             >
                               View
                             </Button>
@@ -455,43 +433,7 @@ const DebitCreditNotes = () => {
         </Tabs>
       </motion.div>
 
-      {/* View Journal Modal */}
-      <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{selected?.journal?.reference || `Journal #${selected?.journal?.id}`}</DialogTitle>
-            <DialogDescription>
-              {selected?.journal?.date} • {selected?.journal?.description || '-'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="mt-2">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Account</TableHead>
-                  <TableHead>Entity</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Debit</TableHead>
-                  <TableHead>Credit</TableHead>
-                  <TableHead>Memo</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(selected?.lines || []).map(l => (
-                  <TableRow key={l.id}>
-                    <TableCell>#{l.account_id}</TableCell>
-                    <TableCell>{l.entity_id ? `#${l.entity_id}` : '-'}</TableCell>
-                    <TableCell>{l.date}</TableCell>
-                    <TableCell className="text-green-600">{Number(l.debit || 0).toLocaleString()}</TableCell>
-                    <TableCell className="text-red-600">{Number(l.credit || 0).toLocaleString()}</TableCell>
-                    <TableCell>{l.memo || '-'}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </DialogContent>
-      </Dialog>
+
 
       {/* Confirm Void */}
       <AlertDialog open={!!confirmVoidId} onOpenChange={(open) => !open && setConfirmVoidId(null)}>

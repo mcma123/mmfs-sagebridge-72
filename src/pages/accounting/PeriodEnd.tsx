@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
+import { useToast } from '@/components/ui/use-toast';
 import {
   getPeriods,
   getYearEndChecklist,
@@ -44,6 +45,7 @@ import {
 
 const PeriodEnd = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [showDialog, setShowDialog] = useState(false);
 
   const [periods, setPeriods] = useState<PeriodDTO[]>([]);
@@ -98,12 +100,12 @@ const PeriodEnd = () => {
 
   const checklistValues: boolean[] = currentPeriod
     ? [
-        currentPeriod.reconciliations_done,
-        currentPeriod.journals_done,
-        currentPeriod.accounts_done,
-        currentPeriod.taxes_done,
-        currentPeriod.reports_done,
-      ]
+      currentPeriod.reconciliations_done,
+      currentPeriod.journals_done,
+      currentPeriod.accounts_done,
+      currentPeriod.taxes_done,
+      currentPeriod.reports_done,
+    ]
     : [];
 
   const completedChecks = checklistValues.filter(v => v).length;
@@ -424,13 +426,12 @@ const PeriodEnd = () => {
                       <td className="px-4 py-3 text-sm">{period.label}</td>
                       <td className="px-4 py-3 text-sm">
                         <span
-                          className={`px-2 py-1 text-xs rounded-full ${
-                            period.status === 'Closed'
-                              ? 'bg-green-100 text-green-800'
-                              : period.status === 'In Progress'
+                          className={`px-2 py-1 text-xs rounded-full ${period.status === 'Closed'
+                            ? 'bg-green-100 text-green-800'
+                            : period.status === 'In Progress'
                               ? 'bg-amber-100 text-amber-800'
                               : 'bg-gray-100 text-gray-800'
-                          }`}
+                            }`}
                         >
                           {period.status}
                         </span>
@@ -478,9 +479,8 @@ const PeriodEnd = () => {
               {yearTasks.map(task => (
                 <div key={task.id} className="flex items-start gap-3">
                   <div
-                    className={`mt-0.5 ${
-                      task.completed ? 'text-green-600' : 'text-gray-300'
-                    }`}
+                    className={`mt-0.5 ${task.completed ? 'text-green-600' : 'text-gray-300'
+                      }`}
                   >
                     {task.completed ? (
                       <CheckCircle className="h-5 w-5" />
@@ -511,11 +511,14 @@ const PeriodEnd = () => {
             </div>
           </CardContent>
           <CardFooter className="bg-muted/50 flex justify-between">
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => navigate('/accounting/year-end-planner')}
+            >
               <Calendar className="h-4 w-4 mr-2" />
               Year-End Planner
             </Button>
-            <Button>Generate Year-End Reports</Button>
+            <Button onClick={() => navigate('/reports')}>Generate Year-End Reports</Button>
           </CardFooter>
         </Card>
 
