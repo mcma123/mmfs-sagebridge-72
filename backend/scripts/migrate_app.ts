@@ -55,6 +55,7 @@ async function run() {
     '021_payment_reconciliation.sql',
     '022_dms_folders_documents.sql',
     '023_period_end.sql',
+    '024_apply_credit_wrapper.sql',
   ];
   console.log('[migrate_app] Running files:', filesToRun.join(', '));
   for (const fname of filesToRun) {

@@ -146,7 +146,7 @@ const DebitNoteCreditsWizard: React.FC = () => {
         return acc ? `${acc.code} — ${acc.name}` : `#${id}`;
     };
 
-    const mmfsIncome = summary?.summary.mmfs_income ?? 0;
+    const mmfsIncome = Number(summary?.summary.mmfs_income ?? 0);
 
     return (
         <MainLayout>
@@ -342,7 +342,7 @@ const DebitNoteCreditsWizard: React.FC = () => {
                                         <TableRow key={`${credit.credit_note_id}-${credit.credit_date}`}>
                                             <TableCell>{credit.credit_reference}</TableCell>
                                             <TableCell>{credit.credit_date}</TableCell>
-                                            <TableCell>{credit.amount.toFixed(2)}</TableCell>
+                                            <TableCell>{Number(credit.amount || 0).toFixed(2)}</TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
