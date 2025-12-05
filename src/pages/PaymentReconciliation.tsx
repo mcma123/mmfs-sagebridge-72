@@ -97,11 +97,15 @@ const PaymentReconciliation = () => {
 
   // Filter outstanding items
   const filteredOutstanding = outstandingData?.items.filter((item) => {
-    const matchesSearch =
-      item.entity_name.toLowerCase().includes(searchOutstanding.toLowerCase()) ||
-      (item.journal_reference?.toLowerCase().includes(searchOutstanding.toLowerCase()) ?? false);
+    const search = searchOutstanding.toLowerCase();
 
-    const matchesType = typeFilter === 'all' || item.journal_type === typeFilter;
+    const matchesSearch =
+      (item.entity_name || '').toLowerCase().includes(search) ||
+      (item.reference || '').toLowerCase().includes(search);
+
+    // All rows in vw_outstanding_receivables are debit notes (DN-*)
+    const inferredType = item.reference?.startsWith('DN-') ? 'debit_note' : 'other';
+    const matchesType = typeFilter === 'all' || typeFilter === inferredType;
 
     return matchesSearch && matchesType;
   }) ?? [];
@@ -269,13 +273,13 @@ const PaymentReconciliation = () => {
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <p className="font-medium">{item.entity_name}</p>
+                        <p className="font-medium">{item.entity_name || 'Unknown entity'}</p>
                         <p className="text-xs text-muted-foreground">
-                          {item.journal_reference || `Journal #${item.journal_id}`}
+                          {item.reference || `Journal #${item.journal_id}`}
                         </p>
                       </div>
                       <Badge variant="outline" className="bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                        {item.journal_type || 'Receivable'}
+                        Debit Note
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between text-sm">
@@ -283,19 +287,16 @@ const PaymentReconciliation = () => {
                         {formatCurrency(item.outstanding_amount)}
                       </span>
                       <span className="text-muted-foreground">
-                        Due: {formatDate(item.journal_date)}
+                        Issued: {formatDate(item.journal_date)}
                       </span>
                     </div>
-                    {item.aging_days !== undefined && (
+                    {typeof item.days_outstanding === 'number' && (
                       <div className="mt-2">
                         <Badge
                           variant="outline"
-                          className={`text-xs ${getAgingColor(item.aging_days)}`}
+                          className={`text-xs ${getAgingColor(item.days_outstanding)}`}
                         >
-                          {item.aging_days > 0
-                            ? `${item.aging_days} days overdue`
-                            : `Due in ${Math.abs(item.aging_days)} days`
-                          }
+                          {item.days_outstanding} days outstanding ({item.aging_bucket})
                         </Badge>
                       </div>
                     )}

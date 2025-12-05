@@ -115,11 +115,14 @@ const DebitCreditNotes = () => {
   function getPaymentStatusBadge(paymentStatus?: string) {
     switch (paymentStatus) {
       case 'paid':
+        // Fully settled (including reconciled items mapped to "Paid" in the grid logic below)
         return <Badge variant="outline" className="bg-green-50 text-green-700">Paid</Badge>;
       case 'partial':
-        return <Badge variant="outline" className="bg-yellow-50 text-yellow-700">Partial</Badge>;
+        // Partially paid but not yet fully settled
+        return <Badge variant="outline" className="bg-yellow-50 text-yellow-700">Partially Paid</Badge>;
       case 'reconciled':
-        return <Badge variant="outline" className="bg-blue-50 text-blue-700">Reconciled</Badge>;
+        // Reconciled is effectively a fully paid note; surface as "Paid" for the user
+        return <Badge variant="outline" className="bg-green-50 text-green-700">Paid</Badge>;
       case 'unpaid':
       default:
         return <Badge variant="outline" className="bg-gray-50 text-gray-700">Unpaid</Badge>;

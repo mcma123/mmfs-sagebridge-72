@@ -1852,6 +1852,7 @@ router.post('/reconciliation/apply-match', authorize(['admin', 'accountant']), a
         throw { status: 404, code: 'NOT_FOUND', message: 'Bank transaction not found' };
       }
       const bankTx = btResult.rows[0];
+      const bankAccountId = bankTx.bank_account_id ?? null;
 
       // Validate total allocation equals bank transaction amount
       const totalAllocated = allocations.reduce((sum, a) => sum + Number(a.amount), 0);
@@ -1884,23 +1885,45 @@ router.post('/reconciliation/apply-match', authorize(['admin', 'accountant']), a
         const totalAmount = Number(journal.total_amount);
         const isFullyPaid = Math.abs(newPaidAmount - totalAmount) < 0.01;
 
-        // Call appropriate payment function
+        // Call appropriate payment function (recording bank account when available)
         if (isFullyPaid) {
-          await client.query(`
-            SELECT accounting.fn_mark_note_paid($1, NULL, $2, $3)
-          `, [journal_id, bankTx.transaction_date, userId]);
+          await client.query(
+            `
+            SELECT accounting.fn_mark_note_paid(
+              p_journal_id := $1,
+              p_bank_account_id := $2,
+              p_payment_date := $3,
+              p_created_by := $4,
+              p_notes := $5
+            )
+          `,
+            [journal_id, bankAccountId, bankTx.transaction_date, userId, null]
+          );
         } else {
-          await client.query(`
-            SELECT accounting.fn_record_partial_payment($1, $2, NULL, $3, $4)
-          `, [journal_id, amount, bankTx.transaction_date, userId]);
+          await client.query(
+            `
+            SELECT accounting.fn_record_partial_payment(
+              p_journal_id := $1,
+              p_amount := $2,
+              p_bank_account_id := $3,
+              p_payment_date := $4,
+              p_created_by := $5,
+              p_notes := $6
+            )
+          `,
+            [journal_id, amount, bankAccountId, bankTx.transaction_date, userId, null]
+          );
         }
 
         // Update received_at timestamp
-        await client.query(`
+        await client.query(
+          `
           UPDATE accounting.journals
           SET received_at = $2
           WHERE id = $1 AND received_at IS NULL
-        `, [journal_id, bankTx.transaction_date]);
+        `,
+          [journal_id, bankTx.transaction_date]
+        );
       }
 
       await client.query('COMMIT');

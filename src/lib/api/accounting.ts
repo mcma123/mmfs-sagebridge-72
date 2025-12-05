@@ -941,14 +941,18 @@ export type BankTransaction = {
 export type OutstandingReceivable = {
   journal_id: number;
   reference: string;
-  date: string;
+  journal_date: string;
   description: string;
   entity_name: string | null;
+  entity_id: number | null;
   total_amount: number;
   paid_amount: number;
-  remaining_amount: number;
-  status: 'unpaid' | 'partial';
-  due_date?: string;
+  outstanding_amount: number;
+  payment_status: 'unpaid' | 'partial' | 'paid' | 'reconciled';
+  recorded_at: string | null;
+  received_at: string | null;
+  days_outstanding: number;
+  aging_bucket: '0-30' | '31-60' | '61-90' | '90+';
 };
 
 export type AvailableCredit = {
