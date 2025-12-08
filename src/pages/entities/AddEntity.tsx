@@ -13,6 +13,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { addEntity } from '@/lib/store/entities';
+import { createEntity } from '@/lib/api/accounting';
 
 const formSchema = z.object({
   type: z.enum(['Client', 'CDANT', 'Reinsurer']),
@@ -56,16 +57,93 @@ const AddEntity: React.FC = () => {
 
   const entityType = form.watch('type');
 
-  const onSubmit = (values: FormValues) => {
-    addEntity(values as any);
-    toast({ title: 'Entity saved', description: `${values.type} "${values.name}" added successfully.` });
-    navigate('/entities');
+  function buildBackendNotes(values: FormValues): string | undefined {
+    const parts: string[] = [];
+
+    if (values.vatNumber) parts.push(`VAT: ${values.vatNumber}`);
+    if (values.creditTermsDays !== undefined && values.creditTermsDays !== null && !Number.isNaN(values.creditTermsDays)) {
+      parts.push(`Credit terms: ${values.creditTermsDays} days`);
+    }
+    if (values.outstanding !== undefined && values.outstanding !== null && !Number.isNaN(values.outstanding)) {
+      parts.push(`Outstanding: ${values.outstanding}`);
+    }
+    if (values.commissionRate !== undefined && values.commissionRate !== null && !Number.isNaN(values.commissionRate)) {
+      parts.push(`Commission rate: ${values.commissionRate}%`);
+    }
+    if (values.licenseNumber) parts.push(`License: ${values.licenseNumber}`);
+    if (values.treatyTerms) parts.push(`Treaty terms: ${values.treatyTerms}`);
+    if (values.rating) parts.push(`Rating: ${values.rating}`);
+    if (values.capacity !== undefined && values.capacity !== null && !Number.isNaN(values.capacity)) {
+      parts.push(`Capacity: ${values.capacity}`);
+    }
+    if (values.netPosition !== undefined && values.netPosition !== null && !Number.isNaN(values.netPosition)) {
+      parts.push(`Net position: ${values.netPosition}`);
+    }
+
+    const extra = parts.length ? parts.join(' | ') : undefined;
+    const baseNotes = values.notes && values.notes.trim().length > 0 ? values.notes.trim() : undefined;
+
+    if (baseNotes && extra) return `${baseNotes} — ${extra}`;
+    if (baseNotes) return baseNotes;
+    if (extra) return extra;
+    return undefined;
+  }
+
+  const onSubmit = async (values: FormValues) => {
+    try {
+      const payload = {
+        type: values.type,
+        name: values.name,
+        status: values.status,
+        currency: values.currency,
+        country: values.country,
+        email: values.email,
+        phone: values.phone,
+        notes: buildBackendNotes(values),
+      };
+
+      await createEntity(payload);
+      // Keep local store in sync so the Entities screen still works offline / without backend round-trips.
+      addEntity(values as any);
+
+      toast({ title: 'Entity saved', description: `${values.type} "${values.name}" added successfully.` });
+      navigate('/entities');
+    } catch (err: any) {
+      console.error('Failed to save entity', err);
+      toast({
+        title: 'Failed to save entity',
+        description: String(err?.message || err),
+        variant: 'destructive',
+      });
+    }
   };
 
-  const onSubmitAddAnother = (values: FormValues) => {
-    addEntity(values as any);
-    toast({ title: 'Entity saved', description: `${values.type} "${values.name}" added. You can add another.` });
-    form.reset({ ...values, name: '', notes: '' });
+  const onSubmitAddAnother = async (values: FormValues) => {
+    try {
+      const payload = {
+        type: values.type,
+        name: values.name,
+        status: values.status,
+        currency: values.currency,
+        country: values.country,
+        email: values.email,
+        phone: values.phone,
+        notes: buildBackendNotes(values),
+      };
+
+      await createEntity(payload);
+      addEntity(values as any);
+
+      toast({ title: 'Entity saved', description: `${values.type} "${values.name}" added. You can add another.` });
+      form.reset({ ...values, name: '', notes: '' });
+    } catch (err: any) {
+      console.error('Failed to save entity', err);
+      toast({
+        title: 'Failed to save entity',
+        description: String(err?.message || err),
+        variant: 'destructive',
+      });
+    }
   };
 
   return (

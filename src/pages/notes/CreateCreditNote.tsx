@@ -117,7 +117,9 @@ const CreateCreditNote = () => {
       });
 
       // If we were launched from a specific debit note, automatically apply this credit
-      if (parentDebitNoteId) {
+      // only when there is a positive net amount to apply. For zero-net credit notes,
+      // we still navigate back to the wizard but skip the application to avoid DB errors.
+      if (parentDebitNoteId && netDueToYou > 0) {
         try {
           await applyCredit(
             resp.journal_id,
@@ -144,6 +146,13 @@ const CreateCreditNote = () => {
         }
 
         // Return to the Debit Note Credits wizard for live summary
+        navigate(`/notes/debit/${parentDebitNoteId}/credits`);
+      } else if (parentDebitNoteId) {
+        // Zero-net credit note: nothing to apply, but still return to wizard
+        toast({
+          title: 'Credit Note Created (No Net Amount)',
+          description: 'This credit note has a zero net amount, so it was not applied automatically.',
+        });
         navigate(`/notes/debit/${parentDebitNoteId}/credits`);
       } else {
         navigate('/debit-credit-notes');

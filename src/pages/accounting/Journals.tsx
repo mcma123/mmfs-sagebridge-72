@@ -51,10 +51,10 @@ const Journals = () => {
   const [selectedJournalMap, setSelectedJournalMap] = useState<Record<number, JournalDTO>>({});
   const [activeTab, setActiveTab] = useState<'draft' | 'reviewed' | 'posted'>('draft');
   const [isActionLoading, setIsActionLoading] = useState(false);
-  
+
   const role = getPrimaryRole();
   const queryClient = useQueryClient();
-  
+
   // Fetch journals from API based on active tab
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['journals', activeTab],
@@ -67,14 +67,19 @@ const Journals = () => {
       });
     },
   });
-  
+
   // Filter journal entries based on search term (client-side)
   const filteredJournals = (data?.items || [])
-    .filter(journal => 
+    .filter(journal =>
       journal.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       journal.reference?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  
+    )
+    // For the Posted tab, hide journals that have already been voided
+    .filter(journal => {
+      if (activeTab !== 'posted') return true;
+      return !journal.voided_at;
+    });
+
   const toggleSelectRow = (journal: JournalDTO) => {
     setSelectedRows(prev =>
       prev.includes(journal.id)
@@ -91,7 +96,7 @@ const Journals = () => {
       return next;
     });
   };
-  
+
   const toggleSelectAll = (journals: JournalDTO[]) => {
     const ids = journals.map(journal => journal.id);
     const allSelected = ids.every(id => selectedRows.includes(id));
@@ -191,11 +196,16 @@ const Journals = () => {
 
     selectedRows.forEach(id => {
       const status = getStatusForSelection(id);
+      const journal = selectedJournalMap[id];
+      const isVoided = !!journal?.voided_at;
+
       if (status === 'draft' || status === 'reviewed') {
         draftOrReviewedIds.push(id);
-      } else if (status === 'posted') {
+      } else if (status === 'posted' && !isVoided) {
+        // Only attempt to void posted journals that are not already voided
         postedIds.push(id);
       } else {
+        // Already-voided or unknown-status journals are treated as unsupported for delete/void
         unsupportedIds.push(id);
       }
     });
@@ -277,7 +287,7 @@ const Journals = () => {
     const status = getStatusForSelection(id);
     return status === 'draft' || status === 'reviewed' || status === 'posted';
   });
-  
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'draft':
@@ -310,13 +320,13 @@ const Journals = () => {
             Back to Accounting
           </Button>
         </div>
-        
+
         {/* Header */}
         <div className="bg-sage-blue rounded-lg p-6 shadow-lg">
           <h1 className="text-2xl font-semibold text-white mb-2">Journal Entries</h1>
           <p className="text-white/80">Create and manage journal transactions</p>
         </div>
-        
+
         {/* Journal Entries List */}
         <Card>
           <CardHeader className="pb-3">
@@ -330,7 +340,7 @@ const Journals = () => {
                   <TabsTrigger value="reviewed">Reviewed Journals</TabsTrigger>
                   <TabsTrigger value="posted">Posted Journals</TabsTrigger>
                 </TabsList>
-                
+
                 <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" className="gap-1">
                     <FileUp size={16} />
@@ -346,7 +356,7 @@ const Journals = () => {
                   </Button>
                 </div>
               </div>
-              
+
               <div className="flex gap-2 mb-6">
                 <div className="relative flex-1">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -357,7 +367,7 @@ const Journals = () => {
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
-                
+
                 <Select>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Filter by Date" />
@@ -371,19 +381,19 @@ const Journals = () => {
                     <SelectItem value="custom">Custom Range</SelectItem>
                   </SelectContent>
                 </Select>
-                
+
                 <Button variant="outline" size="icon" className="shrink-0">
                   <Filter size={16} />
                 </Button>
               </div>
-              
+
               {/* Batch Actions */}
               {selectedRows.length > 0 && (
                 <div className="flex items-center gap-2 mb-4 p-2 bg-sage-lightGray rounded-md">
                   <CheckSquare size={16} className="text-sage-blue" />
                   <span className="text-sm font-medium">{selectedRows.length} entries selected</span>
                   <div className="flex-1"></div>
-                  
+
                   {activeTab === 'draft' && (
                     <Button
                       variant="ghost"
@@ -395,7 +405,7 @@ const Journals = () => {
                       Mark as Reviewed
                     </Button>
                   )}
-                  
+
                   {activeTab === 'reviewed' && (
                     <Button
                       variant="ghost"
@@ -406,7 +416,7 @@ const Journals = () => {
                       Post Entries
                     </Button>
                   )}
-                  
+
                   <Button
                     variant="ghost"
                     size="sm"
@@ -418,7 +428,7 @@ const Journals = () => {
                   </Button>
                 </div>
               )}
-              
+
               <TabsContent value="draft" className="m-0">
                 {isLoading ? (
                   <div className="text-center py-8 text-muted-foreground">Loading journals...</div>
@@ -428,7 +438,7 @@ const Journals = () => {
                   renderJournalTable(filteredJournals, selectedRows, toggleSelectRow, toggleSelectAll, getStatusBadge)
                 )}
               </TabsContent>
-              
+
               <TabsContent value="reviewed" className="m-0">
                 {isLoading ? (
                   <div className="text-center py-8 text-muted-foreground">Loading journals...</div>
@@ -438,7 +448,7 @@ const Journals = () => {
                   renderJournalTable(filteredJournals, selectedRows, toggleSelectRow, toggleSelectAll, getStatusBadge)
                 )}
               </TabsContent>
-              
+
               <TabsContent value="posted" className="m-0">
                 {isLoading ? (
                   <div className="text-center py-8 text-muted-foreground">Loading journals...</div>
@@ -451,7 +461,7 @@ const Journals = () => {
             </Tabs>
           </CardContent>
         </Card>
-        
+
         {/* Journal Workflow Explanation */}
         <Card>
           <CardHeader className="pb-3">
@@ -466,15 +476,15 @@ const Journals = () => {
                   In this stage, entries can be freely edited or deleted.
                 </p>
               </div>
-              
+
               <div className="flex-1 space-y-2">
                 <h3 className="font-medium">2. Reviewed Journals</h3>
                 <p className="text-sm text-muted-foreground">
-                  After verification, journals are marked as reviewed. This indicates that the entries have been 
+                  After verification, journals are marked as reviewed. This indicates that the entries have been
                   checked and approved, but are not yet permanently recorded in the general ledger.
                 </p>
               </div>
-              
+
               <div className="flex-1 space-y-2">
                 <h3 className="font-medium">3. Posted Journals</h3>
                 <p className="text-sm text-muted-foreground">
@@ -502,8 +512,8 @@ function renderJournalTable(
   const headerCheckboxState = allVisibleSelected
     ? true
     : visibleSelectedCount > 0
-    ? 'indeterminate'
-    : false;
+      ? 'indeterminate'
+      : false;
 
   return (
     <div className="border rounded-md overflow-hidden">
@@ -511,7 +521,7 @@ function renderJournalTable(
         <TableHeader>
           <TableRow className="bg-sage-lightGray">
             <TableHead className="w-[50px]">
-              <Checkbox 
+              <Checkbox
                 checked={headerCheckboxState}
                 onCheckedChange={() => toggleSelectAll(journals)}
               />
@@ -532,12 +542,12 @@ function renderJournalTable(
             </TableRow>
           ) : (
             journals.map(journal => (
-              <TableRow 
+              <TableRow
                 key={journal.id}
                 className={selectedRows.includes(journal.id) ? 'bg-blue-50' : ''}
               >
                 <TableCell>
-                  <Checkbox 
+                  <Checkbox
                     checked={selectedRows.includes(journal.id)}
                     onCheckedChange={() => toggleSelectRow(journal)}
                   />

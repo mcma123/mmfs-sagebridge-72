@@ -794,6 +794,52 @@ router.get('/ledger', authorize(['admin', 'accountant', 'editor', 'viewer']), re
   } catch (err) { next(err); }
 });
 
+// Admin-only endpoint to clear all ledger and journal transaction history.
+// Intended for test/demo environments where a full reset is required.
+router.post('/ledger/clear', authorize(['admin']), async (req: any, res: any, next: any) => {
+  try {
+    if (!req.pg) {
+      throw {
+        status: 500,
+        code: 'PG_UNAVAILABLE',
+        message: 'Postgres client not available on request object',
+      };
+    }
+
+    const client = await req.pg.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Order matters because of foreign key dependencies.
+      // 1) Clear payment/reconciliation related tables
+      await client.query('DELETE FROM accounting.payment_allocations');
+      await client.query('DELETE FROM accounting.note_payments');
+      await client.query('DELETE FROM accounting.note_applications');
+      await client.query('DELETE FROM accounting.bank_transactions');
+      await client.query('DELETE FROM accounting.reconciliation_batches');
+
+      // 2) Clear core ledger/journal data
+      await client.query('DELETE FROM accounting.ledger_entries');
+      await client.query('DELETE FROM accounting.journal_lines');
+      await client.query('DELETE FROM accounting.journals');
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'All accounting journals, journal lines, ledger entries, and related payment/reconciliation records have been cleared.',
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Trial balance (with optional date filter)
 router.get('/trial-balance', authorize(['admin', 'accountant', 'viewer']), async (req: any, res: any, next: any) => {
   try {

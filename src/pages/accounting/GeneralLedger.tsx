@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import MainLayout from '@/components/layout/MainLayout';
 import { useNavigate } from 'react-router-dom';
@@ -45,7 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useQuery } from '@tanstack/react-query';
-import { getLedger, getAccounts, type LedgerEntryDTO, type AccountDTO } from '@/lib/api/accounting';
+import { getLedger, getAccounts, clearLedger, type LedgerEntryDTO, type AccountDTO } from '@/lib/api/accounting';
 import { getPrimaryRole } from '@/lib/api/auth';
 import { useToast } from '@/hooks/use-toast';
 
@@ -53,7 +53,7 @@ const GeneralLedger = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const role = getPrimaryRole();
-  
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [dateRange, setDateRange] = useState<{
@@ -67,28 +67,47 @@ const GeneralLedger = () => {
   const pageSize = 50;
 
   // Fetch accounts for filter dropdown
-  const { data: accountsData, isLoading: accountsLoading } = useQuery({
+  const {
+    data: accountsData,
+    isLoading: accountsLoading,
+    error: accountsError,
+  } = useQuery({
     queryKey: ['accounts', role],
-    queryFn: () => getAccounts(role),
-    onError: (error: any) => {
-      toast({
-        title: 'Error loading accounts',
-        description: error.message || 'Failed to load accounts',
-        variant: 'destructive',
-      });
-    },
+    // getPrimaryRole returns string; cast to Role-compatible type for the client helper
+    queryFn: () => getAccounts(role as any),
   });
 
+  // Surface account load errors via toast
+  useEffect(() => {
+    if (accountsError) {
+      const err: any = accountsError;
+      toast({
+        title: 'Error loading accounts',
+        description: err?.message || 'Failed to load accounts',
+        variant: 'destructive',
+      });
+    }
+  }, [accountsError, toast]);
+
   // Fetch ledger entries with filters and pagination
-  const { data: ledgerData, isLoading: ledgerLoading, isError: ledgerError } = useQuery({
+  const {
+    data: ledgerData,
+    isLoading: ledgerLoading,
+    isError: ledgerError,
+    refetch: refetchLedger,
+  } = useQuery({
     queryKey: ['ledger', selectedAccountId, dateRange.from, dateRange.to, page, pageSize, role],
-    queryFn: () => getLedger({
-      accountId: selectedAccountId ? Number(selectedAccountId) : undefined,
-      start: dateRange.from ? format(dateRange.from, 'yyyy-MM-dd') : undefined,
-      end: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : undefined,
-      limit: pageSize,
-      offset: page * pageSize,
-    }, role),
+    queryFn: () =>
+      getLedger(
+        {
+          accountId: selectedAccountId ? Number(selectedAccountId) : undefined,
+          start: dateRange.from ? format(dateRange.from, 'yyyy-MM-dd') : undefined,
+          end: dateRange.to ? format(dateRange.to, 'yyyy-MM-dd') : undefined,
+          limit: pageSize,
+          offset: page * pageSize,
+        },
+        role
+      ),
     keepPreviousData: true,
     onError: (error: any) => {
       toast({
@@ -121,7 +140,7 @@ const GeneralLedger = () => {
       const account = accountMap[entry.account_id];
       const accountName = account ? `${account.code} - ${account.name}` : '';
       return accountName.toLowerCase().includes(term) ||
-             entry.date.toLowerCase().includes(term);
+        entry.date.toLowerCase().includes(term);
     });
   }, [ledgerEntries, searchTerm, accountMap]);
 
@@ -161,13 +180,13 @@ const GeneralLedger = () => {
             Back to Accounting
           </Button>
         </div>
-        
+
         {/* Header */}
         <div className="bg-sage-blue rounded-lg p-6 shadow-lg">
           <h1 className="text-2xl font-semibold text-white mb-2">General Ledger</h1>
           <p className="text-white/80">View and analyze all financial transactions</p>
         </div>
-        
+
         {/* General Ledger Content */}
         <Card>
           <CardHeader className="pb-3">
@@ -185,9 +204,9 @@ const GeneralLedger = () => {
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
-                
-                <Select 
-                  value={selectedAccountId} 
+
+                <Select
+                  value={selectedAccountId}
                   onValueChange={(val) => {
                     setSelectedAccountId(val === 'all' ? '' : val);
                     setPage(0); // Reset to first page on filter change
@@ -206,7 +225,7 @@ const GeneralLedger = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                
+
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -245,9 +264,9 @@ const GeneralLedger = () => {
                       numberOfMonths={2}
                     />
                     <div className="flex items-center justify-between p-3 border-t">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => {
                           setDateRange({ from: undefined, to: undefined });
                           setPage(0);
@@ -262,15 +281,46 @@ const GeneralLedger = () => {
                   </PopoverContent>
                 </Popover>
               </div>
-              
+
               <div className="flex gap-2">
                 <Button variant="outline" className="gap-1 whitespace-nowrap">
                   <FileDown size={16} />
                   Export
                 </Button>
+                {role === 'admin' && (
+                  <Button
+                    variant="outline"
+                    className="gap-1 whitespace-nowrap text-red-600 border-red-200 hover:bg-red-50"
+                    disabled={ledgerLoading}
+                    onClick={async () => {
+                      const confirmed = window.confirm(
+                        'This will permanently clear all journals, journal lines, ledger entries, and related payment/reconciliation records from the system. ' +
+                        'Use this only in a test/demo environment.\n\nDo you want to continue?'
+                      );
+                      if (!confirmed) return;
+                      try {
+                        const result = await clearLedger('admin');
+                        toast({
+                          title: 'Transaction history cleared',
+                          description: result.message || 'All accounting transaction history has been removed.',
+                        });
+                        setPage(0);
+                        await refetchLedger();
+                      } catch (error: any) {
+                        toast({
+                          title: 'Failed to clear ledger',
+                          description: error?.message || 'Could not clear transaction history.',
+                          variant: 'destructive',
+                        });
+                      }
+                    }}
+                  >
+                    Clear Transaction History
+                  </Button>
+                )}
               </div>
             </div>
-            
+
             {/* Transactions Table */}
             {ledgerLoading ? (
               <div className="flex items-center justify-center py-12">
@@ -369,7 +419,7 @@ const GeneralLedger = () => {
                 )}
               </>
             )}
-            
+
             {/* Ledger Totals */}
             {!ledgerLoading && !ledgerError && filteredEntries.length > 0 && (
               <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -381,7 +431,7 @@ const GeneralLedger = () => {
                     </div>
                   </CardContent>
                 </Card>
-                
+
                 <Card className="border border-sage-blue/20">
                   <CardContent className="p-4 flex justify-between items-center">
                     <div>
@@ -390,7 +440,7 @@ const GeneralLedger = () => {
                     </div>
                   </CardContent>
                 </Card>
-                
+
                 <Card className="border border-sage-blue/20">
                   <CardContent className="p-4 flex justify-between items-center">
                     <div>

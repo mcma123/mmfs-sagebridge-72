@@ -78,6 +78,19 @@ export type EntityDTO = {
   deleted_at?: string | null;
 };
 
+export type CreateEntityRequest = {
+  type: string;
+  name: string;
+  status?: string | null;
+  currency?: string | null;
+  country?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  notes?: string | null;
+};
+
+export type UpdateEntityRequest = Partial<CreateEntityRequest>;
+
 export type AccountDTO = {
   id: number;
   code: string;
@@ -157,6 +170,25 @@ export type JournalLineDTO = {
 
 export async function getEntities(role: Role = 'accountant') {
   return apiFetch<{ items: EntityDTO[] }>(`/entities`, { method: 'GET' }, role);
+}
+
+export async function createEntity(
+  payload: CreateEntityRequest,
+  role: Role = 'accountant'
+) {
+  return apiFetch<EntityDTO>(`/entities`, { method: 'POST', body: JSON.stringify(payload) }, role);
+}
+
+export async function updateEntity(
+  id: number,
+  payload: UpdateEntityRequest,
+  role: Role = 'accountant'
+) {
+  return apiFetch<EntityDTO>(
+    `/entities/${id}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+    role
+  );
 }
 
 export async function getAccounts(role: Role = 'accountant') {
@@ -320,7 +352,10 @@ export type LedgerEntryDTO = {
   created_at: string;
 };
 
-export async function getLedger(params: { accountId?: number; start?: string; end?: string; limit?: number; offset?: number }, role: Role = 'accountant') {
+export async function getLedger(
+  params: { accountId?: number; start?: string; end?: string; limit?: number; offset?: number },
+  role: Role = 'accountant'
+) {
   const qs = new URLSearchParams();
   if (params.accountId) qs.set('account_id', String(params.accountId));
   if (params.start) qs.set('start', params.start);
@@ -330,6 +365,23 @@ export async function getLedger(params: { accountId?: number; start?: string; en
   const q = qs.toString();
   const path = `/ledger${q ? `?${q}` : ''}`;
   return apiFetch<{ items: LedgerEntryDTO[]; total?: number }>(path, { method: 'GET' }, role);
+}
+
+/**
+ * Admin-only: Clear all ledger entries, journals, and related payment/reconciliation
+ * data from the accounting system. Intended for test/demo environments where a
+ * complete reset of transaction history is required.
+ */
+export async function clearLedger(
+  role: Role = 'admin',
+  userId?: number
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch<{ success: boolean; message: string }>(
+    `/ledger/clear`,
+    { method: 'POST' },
+    role,
+    userId
+  );
 }
 
 // ============================================================================
@@ -938,6 +990,10 @@ export type BankTransaction = {
   created_at: string;
 };
 
+/**
+ * Outstanding receivable item used by payment reconciliation.
+ * Backed by accounting.vw_outstanding_receivables.
+ */
 export type OutstandingReceivable = {
   journal_id: number;
   reference: string;
@@ -953,19 +1009,31 @@ export type OutstandingReceivable = {
   received_at: string | null;
   days_outstanding: number;
   aging_bucket: '0-30' | '31-60' | '61-90' | '90+';
+  /**
+   * Note type classification, currently 'debit_note' for this view.
+   * Included so frontend can merge with credit-note items.
+   */
+  note_type?: 'debit_note' | 'credit_note';
 };
 
+/**
+ * Available credit-note item, backed by accounting.vw_available_credits.
+ * Represents credit notes (CN-*) with remaining available amount.
+ */
 export type AvailableCredit = {
   journal_id: number;
   reference: string;
-  date: string;
+  journal_date: string;
   description: string;
   entity_name: string | null;
-  matched_amount: number;
-  unallocated_amount: number;
-  status: 'unallocated' | 'matched' | 'partially_matched' | 'ignored';
-  batch_description: string | null;
-  created_at: string;
+  entity_id: number | null;
+  total_amount: number;
+  applied_amount: number;
+  available_amount: number;
+  payment_status: 'unpaid' | 'partial' | 'paid' | 'reconciled';
+  days_outstanding: number;
+  aging_bucket: '0-30' | '31-60' | '61-90' | '90+';
+  note_type: 'credit_note';
 };
 
 export type MatchSuggestion = {

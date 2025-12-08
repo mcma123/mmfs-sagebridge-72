@@ -21,10 +21,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import {
   getOutstandingItems,
+  getAvailableCredits,
   getBankTransactions,
   suggestMatches,
   applyMatch,
   OutstandingReceivable,
+  AvailableCredit,
   BankTransaction,
   MatchSuggestion,
 } from '@/lib/api/accounting';
@@ -44,14 +46,24 @@ const PaymentReconciliation = () => {
 
   const queryClient = useQueryClient();
 
-  // Fetch outstanding items
+  // Fetch outstanding debit-note items
   const {
     data: outstandingData,
     isLoading: isLoadingOutstanding,
     error: outstandingError,
   } = useQuery({
     queryKey: ['outstanding-items'],
-    queryFn: getOutstandingItems,
+    queryFn: () => getOutstandingItems(),
+  });
+
+  // Fetch available credit notes (credit side)
+  const {
+    data: availableCreditsData,
+    isLoading: isLoadingCredits,
+    error: availableCreditsError,
+  } = useQuery({
+    queryKey: ['available-credits'],
+    queryFn: () => getAvailableCredits(),
   });
 
   // Fetch bank transactions
@@ -61,7 +73,7 @@ const PaymentReconciliation = () => {
     error: transactionsError,
   } = useQuery({
     queryKey: ['bank-transactions'],
-    queryFn: getBankTransactions,
+    queryFn: () => getBankTransactions(),
   });
 
   // Fetch match suggestions when a payment is selected
@@ -95,20 +107,39 @@ const PaymentReconciliation = () => {
     },
   });
 
-  // Filter outstanding items
-  const filteredOutstanding = outstandingData?.items.filter((item) => {
+  // Combine and filter outstanding items (debit + credit notes)
+  const isLoadingCombinedOutstanding = isLoadingOutstanding || isLoadingCredits;
+  const combinedOutstandingError = outstandingError || availableCreditsError;
+
+  const combinedOutstanding: Array<
+    (OutstandingReceivable & { note_type?: 'debit_note' | 'credit_note' }) | AvailableCredit
+  > = [
+      ...(outstandingData?.items ?? []).map((item) => ({
+        ...item,
+        note_type: (item.note_type ?? 'debit_note') as 'debit_note' | 'credit_note',
+      })),
+      ...(availableCreditsData?.items ?? []),
+    ];
+
+  const filteredOutstanding = combinedOutstanding.filter((item) => {
     const search = searchOutstanding.toLowerCase();
 
     const matchesSearch =
       (item.entity_name || '').toLowerCase().includes(search) ||
       (item.reference || '').toLowerCase().includes(search);
 
-    // All rows in vw_outstanding_receivables are debit notes (DN-*)
-    const inferredType = item.reference?.startsWith('DN-') ? 'debit_note' : 'other';
+    const inferredType =
+      item.note_type ??
+      (item.reference?.startsWith('DN-')
+        ? 'debit_note'
+        : item.reference?.startsWith('CN-')
+          ? 'credit_note'
+          : 'other');
+
     const matchesType = typeFilter === 'all' || typeFilter === inferredType;
 
     return matchesSearch && matchesType;
-  }) ?? [];
+  });
 
   // Filter bank transactions
   const filteredTransactions = bankTransactionsData?.items.filter((transaction) => {
@@ -180,6 +211,31 @@ const PaymentReconciliation = () => {
     return 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300';
   };
 
+  const getNoteLabel = (item: { note_type?: string; reference?: string | null }) => {
+    const type =
+      item.note_type ??
+      (item.reference?.startsWith('CN-')
+        ? 'credit_note'
+        : item.reference?.startsWith('DN-')
+          ? 'debit_note'
+          : 'other');
+    return type === 'credit_note' ? 'Credit Note' : 'Debit Note';
+  };
+
+  const getOutstandingAmountForItem = (item: any): number => {
+    if (item.note_type === 'credit_note' || item.reference?.startsWith('CN-')) {
+      return item.available_amount;
+    }
+    return item.outstanding_amount;
+  };
+
+  const getAmountColorForItem = (item: any): string => {
+    if (item.note_type === 'credit_note' || item.reference?.startsWith('CN-')) {
+      return 'text-emerald-600';
+    }
+    return 'text-amber-600';
+  };
+
   return (
     <MainLayout>
       <motion.div
@@ -235,30 +291,31 @@ const PaymentReconciliation = () => {
                   className="flex-1"
                 />
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
-                  <SelectTrigger className="w-[140px]">
+                  <SelectTrigger className="w-[160px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
                     <SelectItem value="debit_note">Debit Notes</SelectItem>
-                    <SelectItem value="invoice">Invoices</SelectItem>
+                    <SelectItem value="credit_note">Credit Notes</SelectItem>
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {isLoadingOutstanding ? (
+              {isLoadingCombinedOutstanding ? (
                 <div className="space-y-3">
                   {[1, 2, 3].map((i) => (
                     <Skeleton key={i} className="h-24 w-full" />
                   ))}
                 </div>
-              ) : outstandingError ? (
+              ) : combinedOutstandingError ? (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    Failed to load outstanding items: {(outstandingError as Error).message}
+                    Failed to load outstanding items:{' '}
+                    {(combinedOutstandingError as Error).message}
                   </AlertDescription>
                 </Alert>
               ) : filteredOutstanding.length === 0 ? (
@@ -278,13 +335,16 @@ const PaymentReconciliation = () => {
                           {item.reference || `Journal #${item.journal_id}`}
                         </p>
                       </div>
-                      <Badge variant="outline" className="bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                        Debit Note
+                      <Badge
+                        variant="outline"
+                        className="bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                      >
+                        {getNoteLabel(item)}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="font-semibold text-amber-600">
-                        {formatCurrency(item.outstanding_amount)}
+                      <span className={`font-semibold ${getAmountColorForItem(item)}`}>
+                        {formatCurrency(getOutstandingAmountForItem(item))}
                       </span>
                       <span className="text-muted-foreground">
                         Issued: {formatDate(item.journal_date)}
@@ -407,13 +467,13 @@ const PaymentReconciliation = () => {
                     <Skeleton key={i} className="h-32 w-full" />
                   ))}
                 </div>
-              ) : !suggestionsData?.suggestions || suggestionsData.suggestions.length === 0 ? (
+              ) : !suggestionsData?.matches || suggestionsData.matches.length === 0 ? (
                 <div className="flex items-center justify-center py-8 text-muted-foreground">
                   <p className="text-sm">No match suggestions found</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {suggestionsData.suggestions.map((suggestion) => (
+                  {suggestionsData.matches.map((suggestion) => (
                     <MatchSuggestionCard
                       key={suggestion.journal_id}
                       suggestion={suggestion}
