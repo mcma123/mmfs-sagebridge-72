@@ -164,11 +164,25 @@ export function setDocumentsApiBase(base: string) {
 
 async function apiFetch<T>(path: string, init: RequestInit = {}, role: Role = 'Editor'): Promise<T> {
   const token = getAccessToken();
+
+  // Start with our known string-only headers
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Role': role,
-    ...(init.headers || {}),
   };
+
+  // Merge any headers provided via init, coercing values to strings to satisfy the Record type.
+  if (init.headers) {
+    const entries =
+      init.headers instanceof Headers
+        ? Array.from(init.headers.entries())
+        : Array.isArray(init.headers)
+          ? init.headers
+          : Object.entries(init.headers as Record<string, string>);
+    for (const [key, value] of entries) {
+      headers[key] = String(value);
+    }
+  }
 
   // Add JWT Authorization header if token exists
   if (token) {
@@ -463,6 +477,113 @@ export async function listDocumentVersions(id: number, role: Role = 'Viewer'): P
     documentId: v.document_id,
     createdAt: v.created_at,
   }));
+}
+
+// ============================================================================
+// Editable Document Content (DOCX / PDF)
+// ============================================================================
+
+export type DocxBlockType = 'paragraph' | 'table';
+
+export interface DocxParagraphBlock {
+  id: string;
+  type: 'paragraph';
+  /**
+   * Structural path of this paragraph inside the DOCX main body, e.g. "body/p[3]".
+   * For newly added paragraphs this will be null when sent to the backend, which
+   * will append them to the end of the document.
+   */
+  path: string | null;
+  /**
+   * Visible text content of the paragraph (no HTML).
+   */
+  text: string;
+}
+
+export interface DocxTableCell {
+  id: string;
+  /**
+   * Structural path of the table cell inside the DOCX main body, e.g.
+   * "body/tbl[1]/tr[2]/tc[1]".
+   */
+  path: string;
+  /**
+   * Visible text content of the cell. Multiple paragraphs in the cell are
+   * flattened using newline separators.
+   */
+  text: string;
+}
+
+export interface DocxTableRow {
+  cells: DocxTableCell[];
+}
+
+export interface DocxTableBlock {
+  id: string;
+  type: 'table';
+  /**
+   * Structural path of the table inside the DOCX main body, e.g. "body/tbl[1]".
+   */
+  path: string;
+  rows: DocxTableRow[];
+}
+
+export interface DocxContent {
+  blocks: Array<DocxParagraphBlock | DocxTableBlock>;
+}
+
+export interface DocumentContent {
+  id: number;
+  name: string;
+  ext: string;
+  version: number;
+  /**
+   * Legacy HTML field used by the original ReactQuill-based editor.
+   * For DOCX editing this will now be null.
+   */
+  html: string | null;
+  /**
+   * Structured representation of the DOCX body content, containing paragraphs
+   * and table cells as plain text without HTML tags.
+   */
+  docx?: DocxContent | null;
+  /**
+   * Optional conversion note (e.g. "pdf_to_text") for non-DOCX formats.
+   */
+  conversionNote?: string;
+}
+
+/**
+ * Get editable content for a document (DOCX or PDF).
+ * For DOCX this now returns structured DocxContent in the `docx` field and the
+ * legacy `html` field will be null. For PDFs this may still provide `html`
+ * and a conversionNote such as "pdf_to_text".
+ */
+export async function getDocumentContent(
+  id: number,
+  role: Role = 'Editor'
+): Promise<DocumentContent> {
+  return apiFetch<DocumentContent>(`/documents/${id}/content`, { method: 'GET' }, role);
+}
+
+/**
+ * Save edited document content and create a new version.
+ * For DOCX documents this accepts a structured DocxContent payload that is
+ * applied directly to the original DOCX XML without any HTML conversion.
+ * For PDFs the backend will flatten the structured content into text and
+ * generate a new PDF.
+ */
+export async function saveDocumentContent(
+  id: number,
+  payload: { docx: DocxContent; targetFormat: 'pdf' | 'docx' },
+  role: Role = 'Editor'
+): Promise<DocumentItem> {
+  const response = await apiFetch<DocumentResponse>(
+    `/documents/${id}/content`,
+    { method: 'POST', body: JSON.stringify(payload) },
+    role
+  );
+  return transformDocument(response);
 }
 
 // ============================================================================

@@ -3,7 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { Role } from '@/lib/api/documents';
+import type { Role, DocxContent } from '@/lib/api/documents';
 import * as documentsApi from '@/lib/api/documents';
 
 // ============================================================================
@@ -18,6 +18,7 @@ export const documentKeys = {
   folderChildren: (id: number, page: number) => [...documentKeys.folder(id), 'children', page] as const,
   documents: () => [...documentKeys.all, 'documents'] as const,
   document: (id: number) => [...documentKeys.documents(), id] as const,
+  content: (id: number) => [...documentKeys.document(id), 'content'] as const,
   companyTree: (companyId: number, folderId?: number) =>
     ['companies', companyId, 'tree', folderId] as const,
 };
@@ -83,6 +84,17 @@ export function useDocument(documentId: number, role: Role = 'Viewer') {
     queryKey: documentKeys.document(documentId),
     queryFn: () => documentsApi.getDocument(documentId, role),
     staleTime: 1 * 60 * 1000, // 1 minute (shorter because signed URLs expire)
+    enabled: documentId > 0,
+  });
+}
+
+/**
+ * Get editable content for a document (DOCX / PDF)
+ */
+export function useDocumentContent(documentId: number, role: Role = 'Editor') {
+  return useQuery({
+    queryKey: documentKeys.content(documentId),
+    queryFn: () => documentsApi.getDocumentContent(documentId, role),
     enabled: documentId > 0,
   });
 }
@@ -325,6 +337,46 @@ export function useDeleteDocument(role: Role = 'Editor') {
     },
     onError: (error: Error) => {
       toast.error(`Failed to delete document: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Save edited document content (DOCX / PDF) and create a new version.
+ * For DOCX, accepts structured DocxContent instead of HTML.
+ */
+export function useSaveDocumentContent(role: Role = 'Editor') {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      folderId,
+      docx,
+      targetFormat,
+    }: {
+      id: number;
+      folderId: number;
+      docx: DocxContent;
+      targetFormat: 'pdf' | 'docx';
+    }) => documentsApi.saveDocumentContent(id, { docx, targetFormat }, role),
+    onSuccess: (data, variables) => {
+      // Invalidate document metadata (version, size, etc.)
+      queryClient.invalidateQueries({
+        queryKey: documentKeys.document(data.id),
+      });
+      // Invalidate editable content cache
+      queryClient.invalidateQueries({
+        queryKey: documentKeys.content(data.id),
+      });
+      // Invalidate folder listing so size/version are refreshed
+      queryClient.invalidateQueries({
+        queryKey: documentKeys.folderChildren(variables.folderId, 1),
+      });
+      toast.success('Document content saved successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to save document content: ${error.message}`);
     },
   });
 }

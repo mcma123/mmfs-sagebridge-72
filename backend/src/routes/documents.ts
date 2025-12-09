@@ -4,8 +4,59 @@ import { authorize } from '../middleware/rbac';
 import crypto from 'crypto';
 import { SupabaseProvider } from '../storage/providers/SupabaseProvider';
 import upload from '../middleware/upload';
+import PDFDocument from 'pdfkit';
+import { parseDocxToBlocks, applyBlocksToDocx, type DocxContent } from '../docx/DocxEditor';
 
 export const documentsRouter = Router();
+
+const SUPPORTED_EDIT_EXTENSIONS = ['docx'] as const;
+
+async function getDocumentRecord(pool: any, id: number) {
+  const result = await pool.query('SELECT * FROM dms.documents WHERE id = $1 AND deleted_at IS NULL', [id]);
+  return result.rows[0];
+}
+
+async function createPdfFromText(text: string): Promise<Buffer> {
+  return await new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({
+      margin: 40,
+    });
+
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', (err: Error) => reject(err));
+
+    doc.fontSize(12);
+    doc.text(text || '', {
+      width: 500,
+      align: 'left',
+    });
+
+    doc.end();
+  });
+}
+
+function flattenDocxContentToText(content: DocxContent): string {
+  const parts: string[] = [];
+
+  for (const block of content.blocks) {
+    if (block.type === 'paragraph') {
+      if (block.text && block.text.trim()) {
+        parts.push(block.text);
+      }
+    } else if (block.type === 'table') {
+      for (const row of block.rows) {
+        const rowText = row.cells.map((c) => (c.text || '').trim()).join('\t');
+        if (rowText.trim()) {
+          parts.push(rowText);
+        }
+      }
+    }
+  }
+
+  return parts.join('\n\n');
+}
 
 // POST /folders/:id/upload – upload file(s)
 documentsRouter.post('/folders/:id/upload', authorize('Editor'), upload.array('files', 10), async (req: Request, res: Response) => {
@@ -108,35 +159,232 @@ documentsRouter.get('/documents/:id/url', authorize('Viewer'), async (req: Reque
   }
 });
 
- // GET /documents/:id/download – download file directly
- documentsRouter.get('/documents/:id/download', authorize('Viewer'), async (req: Request, res: Response) => {
-   const { id } = req.params;
-   const pool = (req as any).pg;
-   const storageClient = (req as any).supabase;
+// GET /documents/:id/download – download file directly
+documentsRouter.get('/documents/:id/download', authorize('Viewer'), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const pool = (req as any).pg;
+  const storageClient = (req as any).supabase;
 
-   try {
-     const result = await pool.query('SELECT * FROM dms.documents WHERE id = $1 AND deleted_at IS NULL', [Number(id)]);
-     const doc = result.rows[0];
+  try {
+    const result = await pool.query('SELECT * FROM dms.documents WHERE id = $1 AND deleted_at IS NULL', [Number(id)]);
+    const doc = result.rows[0];
 
-     if (!doc) {
-       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found' } });
-     }
+    if (!doc) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found' } });
+    }
 
-     const provider = new SupabaseProvider(storageClient);
-     const { body, contentType } = await provider.getObject({ key: doc.storage_key });
+    const provider = new SupabaseProvider(storageClient);
+    const { body, contentType } = await provider.getObject({ key: doc.storage_key });
 
-     // Set appropriate headers for file download
-     res.setHeader('Content-Type', contentType || doc.mime_type || 'application/octet-stream');
-     res.setHeader('Content-Disposition', `attachment; filename="${doc.name}"`);
-     res.setHeader('Content-Length', body.length.toString());
+    // Set appropriate headers for file download
+    res.setHeader('Content-Type', contentType || doc.mime_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${doc.name}"`);
+    res.setHeader('Content-Length', body.length.toString());
 
-     // Send file buffer
-     res.send(body);
-   } catch (error: any) {
-     console.error('Download error:', error);
-     res.status(500).json({ error: { code: 'DOWNLOAD_ERROR', message: error.message } });
-   }
- });
+    // Send file buffer
+    res.send(body);
+  } catch (error: any) {
+    console.error('Download error:', error);
+    res.status(500).json({ error: { code: 'DOWNLOAD_ERROR', message: error.message } });
+  }
+});
+
+// GET /documents/:id/content – get editable content for DOCX
+documentsRouter.get('/documents/:id/content', authorize('Editor'), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const pool = (req as any).pg;
+  const storageClient = (req as any).supabase;
+
+  if (!storageClient) {
+    return res.status(500).json({ error: { code: 'NO_STORAGE', message: 'Supabase storage not initialized' } });
+  }
+
+  try {
+    const doc = await getDocumentRecord(pool, Number(id));
+
+    if (!doc) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found' } });
+    }
+
+    const ext = (doc.ext || '').toLowerCase();
+    if (!SUPPORTED_EDIT_EXTENSIONS.includes(ext)) {
+      return res.status(400).json({ error: { code: 'UNSUPPORTED_TYPE', message: `Editing not supported for .${ext || 'unknown'} files` } });
+    }
+
+    const provider = new SupabaseProvider(storageClient);
+    const { body } = await provider.getObject({ key: doc.storage_key });
+
+    let html: string | null = null;
+    let conversionNote: string | null = null;
+    let docxContent: DocxContent | null = null;
+
+    if (ext === 'docx') {
+      try {
+        docxContent = parseDocxToBlocks(body);
+      } catch (err: any) {
+        console.error('DOCX parse error:', err);
+        return res.status(500).json({
+          error: {
+            code: 'DOCX_PARSE_ERROR',
+            message: 'Failed to parse DOCX content for editing.',
+          },
+        });
+      }
+    }
+
+    res.json({
+      id: doc.id,
+      name: doc.name,
+      ext: doc.ext,
+      version: doc.version,
+      html,
+      conversionNote,
+      docx: docxContent,
+    });
+  } catch (error: any) {
+    console.error('Get content error:', error);
+    res.status(500).json({ error: { code: 'GET_CONTENT_ERROR', message: error.message } });
+  }
+});
+
+// POST /documents/:id/content – save edited content and create new version
+documentsRouter.post('/documents/:id/content', authorize('Editor'), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { docx, targetFormat } = req.body || {};
+  const pool = (req as any).pg;
+  const storageClient = (req as any).supabase;
+
+  if (!storageClient) {
+    return res.status(500).json({ error: { code: 'NO_STORAGE', message: 'Supabase storage not initialized' } });
+  }
+
+  if (!docx || typeof docx !== 'object' || !Array.isArray((docx as DocxContent).blocks)) {
+    return res.status(400).json({
+      error: {
+        code: 'INVALID_CONTENT',
+        message: 'DOCX content is required and must include a blocks array',
+      },
+    });
+  }
+
+  try {
+    const doc = await getDocumentRecord(pool, Number(id));
+
+    if (!doc) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document not found' } });
+    }
+
+    const currentExt = (doc.ext || '').toLowerCase();
+    if (!SUPPORTED_EDIT_EXTENSIONS.includes(currentExt)) {
+      return res.status(400).json({ error: { code: 'UNSUPPORTED_TYPE', message: `Editing not supported for .${currentExt || 'unknown'} files` } });
+    }
+
+    const format = ((targetFormat as string) || currentExt).toLowerCase();
+    if (format !== 'docx' && format !== 'pdf') {
+      return res.status(400).json({ error: { code: 'INVALID_FORMAT', message: 'targetFormat must be "docx" or "pdf"' } });
+    }
+
+    const provider = new SupabaseProvider(storageClient);
+    const { body: originalBody } = await provider.getObject({ key: doc.storage_key });
+
+    let newBuffer: Buffer;
+    let mimeType: string;
+    let newExt: string;
+
+    if (format === 'docx') {
+      try {
+        newBuffer = applyBlocksToDocx(originalBody, docx as DocxContent);
+      } catch (err: any) {
+        console.error('DOCX apply error:', err);
+        return res.status(500).json({
+          error: {
+            code: 'DOCX_APPLY_ERROR',
+            message: 'Failed to apply edits to DOCX document.',
+          },
+        });
+      }
+      mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      newExt = 'docx';
+    } else {
+      const plainText = flattenDocxContentToText(docx as DocxContent);
+      try {
+        newBuffer = await createPdfFromText(plainText || '');
+      } catch (err: any) {
+        console.error('PDF conversion error:', err);
+        return res.status(500).json({
+          error: {
+            code: 'PDF_CONVERT_ERROR',
+            message: 'Failed to generate PDF from edited content.',
+          },
+        });
+      }
+      mimeType = 'application/pdf';
+      newExt = 'pdf';
+    }
+
+    const checksum = crypto.createHash('sha256').update(newBuffer).digest('hex');
+    const newVersion = (doc.version || 1) + 1;
+
+    try {
+      await pool.query('BEGIN');
+
+      // Replace the existing file in storage at the same key so the document
+      // stays in the same place in the system.
+      try {
+        const storageProvider = new SupabaseProvider(storageClient);
+        // Delete old object (ignore errors if it does not exist)
+        try {
+          await storageProvider.deleteObject({ key: doc.storage_key });
+        } catch (e) {
+          console.warn('Delete existing object failed (continuing):', e);
+        }
+        // Upload new object at the same key
+        await storageProvider.putObject({
+          key: doc.storage_key,
+          contentType: mimeType,
+          body: newBuffer,
+        });
+      } catch (storageErr: any) {
+        console.error('Storage replace error:', storageErr);
+        await pool.query('ROLLBACK').catch(() => { });
+        return res.status(500).json({
+          error: {
+            code: 'STORAGE_REPLACE_ERROR',
+            message: storageErr.message || 'Failed to update document file in storage',
+          },
+        });
+      }
+
+      // Update main document record with new size/checksum/version/mime/ext
+      const updateResult = await pool.query(
+        `UPDATE dms.documents
+        SET size_bytes = $1,
+            checksum_sha256 = $2,
+            version = $3,
+            mime_type = $4,
+            ext = $5,
+            updated_at = NOW()
+        WHERE id = $6
+        RETURNING id, folder_id, name, ext, mime_type, size_bytes, storage_key, checksum_sha256, version`,
+        [newBuffer.length, checksum, newVersion, mimeType, newExt, doc.id]
+      );
+
+      await pool.query('COMMIT');
+
+      const updated = updateResult.rows[0];
+      res.json(updated);
+    } catch (err: any) {
+      await pool.query('ROLLBACK').catch(() => { });
+      console.error('Save content error (transaction):', err);
+      res.status(500).json({ error: { code: 'SAVE_CONTENT_ERROR', message: err.message } });
+    }
+  } catch (error: any) {
+    if (!res.headersSent) {
+      console.error('Save content error:', error);
+      res.status(500).json({ error: { code: 'SAVE_CONTENT_ERROR', message: error.message } });
+    }
+  }
+});
 
 // PATCH /documents/:id – rename, tags, metadata
 documentsRouter.patch('/documents/:id', authorize('Editor'), async (req: Request, res: Response) => {

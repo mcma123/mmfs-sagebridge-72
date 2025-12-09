@@ -551,6 +551,19 @@ const Documents: React.FC = () => {
     }
   }
 
+  function canEditDocument(ext?: string) {
+    const t = (ext || '').toLowerCase();
+    return t === 'pdf' || t === 'docx';
+  }
+
+  function handleEditDocument(docId: number, ext?: string) {
+    if (!canEdit || !canEditDocument(ext)) {
+      return;
+    }
+    trackEvent('document_edit_open', { module: 'dms', id: docId, folderId: currentFolderId });
+    navigate(`/dms/documents/${currentFolderId}/document/${docId}/edit`);
+  }
+
   async function handleDeleteDocument(docId: number, docName: string) {
     if (!canEdit) return;
 
@@ -866,6 +879,17 @@ const Documents: React.FC = () => {
                                     <Download className="h-3 w-3 mr-1" />
                                     Download
                                   </Button>
+                                  {canEdit && canEditDocument(doc.ext) && !selectionMode && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() => handleEditDocument(doc.id, doc.ext)}
+                                    >
+                                      <Pencil className="h-3 w-3 mr-1" />
+                                      Edit
+                                    </Button>
+                                  )}
                                   {canEdit && (
                                     <Button
                                       size="sm"
@@ -933,6 +957,15 @@ const Documents: React.FC = () => {
                                 >
                                   <Download className="h-4 w-4" />
                                 </Button>
+                                {canEdit && canEditDocument(doc.ext) && !selectionMode && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleEditDocument(doc.id, doc.ext)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                )}
                                 {canEdit && (
                                   <Button
                                     size="sm"

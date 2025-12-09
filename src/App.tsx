@@ -22,6 +22,7 @@ import Projects from "./pages/dms/Projects";
 import ProgressTracker from "./pages/dms/ProgressTracker";
 import Documents from "./pages/dms/Documents";
 import Tasks from "./pages/dms/Tasks";
+import DocumentEditor from "./pages/dms/DocumentEditor";
 import Banking from "./pages/Banking";
 import ImportWizard from "./pages/banking/ImportWizard";
 import Reports from "./pages/Reports";
@@ -145,6 +146,7 @@ const App = () => (
                     <Route path="/dms/progress" element={<ProgressTracker />} />
                     <Route path="/dms/documents" element={<Documents />} />
                     <Route path="/dms/documents/:folderId" element={<Documents />} />
+                    <Route path="/dms/documents/:folderId/document/:documentId/edit" element={<DocumentEditor />} />
                     <Route path="/dms/tasks" element={<Tasks />} />
 
                     {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
