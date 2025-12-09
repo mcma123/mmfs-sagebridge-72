@@ -227,9 +227,13 @@ const CreateDebitNote = () => {
                         <SelectValue placeholder="Select entity" />
                       </SelectTrigger>
                       <SelectContent>
-                        {entities.map(e => (
-                          <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.type})</SelectItem>
-                        ))}
+                        {entities
+                          .filter(e => e.name !== 'Default Client' && (e.status === 'Active' || !e.status))
+                          .map(e => (
+                            <SelectItem key={e.id} value={String(e.id)}>
+                              {e.name} ({e.type})
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>

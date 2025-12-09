@@ -41,6 +41,14 @@ type NoteRow = {
   status: string;
   paymentStatus?: string;
   paidAmount?: number;
+  /**
+   * Remaining amount that can still be settled for debit notes (amount - paidAmount).
+   */
+  remainingAmount?: number;
+  /**
+   * For credit notes, the remaining amount that can still be applied.
+   */
+  availableAmount?: number;
 };
 
 const DebitCreditNotes = () => {
@@ -98,14 +106,29 @@ const DebitCreditNotes = () => {
     );
   }, [journals]);
 
-  function parseAmountFromDescription(desc?: string | null): { currency?: string; amount?: number; reason?: string; policyRef?: string; entityName?: string } {
+  function parseAmountFromDescription(desc?: string | null): {
+    currency?: string;
+    amount?: number;
+    reason?: string;
+    policyRef?: string;
+    entityName?: string;
+  } {
     if (!desc) return {};
-    const m = desc.match(/NetDue(?:ToYou)?\s+([A-Z]{3})\s+([0-9]+(?:\.[0-9]+)?)/);
+
+    // Match patterns like:
+    //   NetDue USD 1719.71
+    //   NetDueToYou ZAR 4,950.00
+    // allowing optional thousands separators.
+    const m = desc.match(/NetDue(?:ToYou)?\s+([A-Z]{3})\s+([0-9,]+(?:\.[0-9]+)?)/);
     const pm = desc.match(/Policy\s+([^;]+)/);
     const em = desc.match(/Entity\s+([^;]+)/);
+
+    const rawAmount = m?.[2]?.replace(/,/g, '');
+    const parsedAmount = rawAmount && !isNaN(Number(rawAmount)) ? Number(rawAmount) : undefined;
+
     return {
       currency: m?.[1],
-      amount: m?.[2] ? Number(m[2]) : undefined,
+      amount: parsedAmount,
       policyRef: pm?.[1]?.trim(),
       entityName: em?.[1]?.trim(),
       reason: desc.split(';')[0],
@@ -135,6 +158,10 @@ const DebitCreditNotes = () => {
       .filter(j => (j.reference || '').startsWith('DN-'))
       .map(j => {
         const { amount, currency, reason, policyRef, entityName } = parseAmountFromDescription(j.description);
+        const totalAmount = typeof amount === 'number' ? amount : 0;
+        const paidAmount = j.paid_amount || 0;
+        const remainingAmount = Math.max(0, totalAmount - paidAmount);
+
         return {
           id: j.reference || `DN-${j.id}`,
           journalId: j.id,
@@ -143,11 +170,12 @@ const DebitCreditNotes = () => {
           entityName: entityName || '-',
           policyRef: policyRef || '-',
           reason: reason || 'Debit Note',
-          amount,
+          amount: totalAmount,
           currency,
           status: j.voided_at ? 'Voided' : 'Posted',
           paymentStatus: j.payment_status || 'unpaid',
-          paidAmount: j.paid_amount || 0,
+          paidAmount,
+          remainingAmount,
         };
       });
   }, [journals]);
@@ -158,6 +186,10 @@ const DebitCreditNotes = () => {
       .filter(j => (j.reference || '').startsWith('CN-'))
       .map(j => {
         const { amount, currency, reason, policyRef, entityName } = parseAmountFromDescription(j.description);
+        const totalAmount = typeof amount === 'number' ? amount : 0;
+        const paidAmount = j.paid_amount || 0;
+        const availableAmount = Math.max(0, totalAmount - paidAmount);
+
         return {
           id: j.reference || `CN-${j.id}`,
           journalId: j.id,
@@ -166,11 +198,12 @@ const DebitCreditNotes = () => {
           entityName: entityName || '-',
           policyRef: policyRef || '-',
           reason: reason || 'Credit Note',
-          amount,
+          amount: totalAmount,
           currency,
           status: j.voided_at ? 'Voided' : 'Posted',
           paymentStatus: j.payment_status || 'unpaid',
-          paidAmount: j.paid_amount || 0,
+          paidAmount,
+          availableAmount,
         };
       });
   }, [journals]);
@@ -246,83 +279,97 @@ const DebitCreditNotes = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {debitNotes.map(note => (
-                      <TableRow key={note.journalId}>
-                        <TableCell className="font-medium">{note.id}</TableCell>
-                        <TableCell>{note.date}</TableCell>
-                        <TableCell>{note.entityName}</TableCell>
-                        <TableCell>{note.policyRef}</TableCell>
-                        <TableCell>{note.reason}</TableCell>
-                        <TableCell className="text-red-600">
-                          {note.currency || 'R'} {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
-                          {note.paidAmount > 0 && (
-                            <div className="text-xs text-green-600 mt-0.5">
-                              Paid: R{note.paidAmount.toFixed(2)}
+                    {debitNotes.map(note => {
+                      const effectiveRemaining =
+                        note.remainingAmount ??
+                        Math.max(0, (note.amount || 0) - (note.paidAmount || 0));
+                      const canAddCreditNoteToDebit =
+                        (note.paymentStatus === 'unpaid' || note.paymentStatus === 'partial') &&
+                        effectiveRemaining > 0;
+
+                      return (
+                        <TableRow key={note.journalId}>
+                          <TableCell className="font-medium">{note.id}</TableCell>
+                          <TableCell>{note.date}</TableCell>
+                          <TableCell>{note.entityName}</TableCell>
+                          <TableCell>{note.policyRef}</TableCell>
+                          <TableCell>{note.reason}</TableCell>
+                          <TableCell className="text-red-600">
+                            {note.currency || 'R'} {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
+                            {note.paidAmount > 0 && (
+                              <div className="text-xs text-green-600 mt-0.5">
+                                Paid: R{note.paidAmount.toFixed(2)}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {getPaymentStatusBadge(note.paymentStatus)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => navigate(`/notes/debit/${note.journalId}`)}
+                              >
+                                View
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm">
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {canManagePayments && note.paymentStatus !== 'paid' && note.paymentStatus !== 'reconciled' && (
+                                    <>
+                                      <DropdownMenuItem onClick={() => setMarkPaidDialog({ open: true, journalId: note.journalId, reference: note.id, amount: note.amount })}>
+                                        Mark as Paid
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => setPartialPaymentDialog({ open: true, journalId: note.journalId, reference: note.id, amount: note.amount, paidAmount: note.paidAmount })}>
+                                        Record Partial Payment
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
+                                  {canManagePayments && (note.paymentStatus === 'paid' || note.paymentStatus === 'partial') && (
+                                    <DropdownMenuItem onClick={() => setReconcileDialog({ open: true, journalId: note.journalId, reference: note.id })}>
+                                      Reconcile Payment
+                                    </DropdownMenuItem>
+                                  )}
+                                  {note.paymentStatus === 'unpaid' || note.paymentStatus === 'partial' ? (
+                                    <DropdownMenuItem onClick={() => navigate(`/payment-reconciliation?search=${note.id}`)}>
+                                      View in Reconciliation
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {canAddCreditNoteToDebit && (
+                                    <DropdownMenuItem onClick={() => navigate(`/notes/credit/new?debitId=${note.journalId}`)}>
+                                      Add Credit Note to Debit
+                                    </DropdownMenuItem>
+                                  )}
+                                  <DropdownMenuItem onClick={() => handleExportPDF(note.journalId, note.id)}>
+                                    <Download className="h-4 w-4 mr-2" />
+                                    Export PDF
+                                  </DropdownMenuItem>
+                                  {canVoid && note.status !== 'Voided' && (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })} className="text-orange-600">
+                                        Void
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
+                                  {canDelete && note.paymentStatus === 'unpaid' && (
+                                    <DropdownMenuItem onClick={() => setDeleteDialog({ open: true, journalId: note.journalId, reference: note.id, noteType: 'debit' })} className="text-red-600">
+                                      Delete
+                                    </DropdownMenuItem>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {getPaymentStatusBadge(note.paymentStatus)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => navigate(`/notes/debit/${note.journalId}`)}
-                            >
-                              View
-                            </Button>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreVertical className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {canManagePayments && note.paymentStatus !== 'paid' && note.paymentStatus !== 'reconciled' && (
-                                  <>
-                                    <DropdownMenuItem onClick={() => setMarkPaidDialog({ open: true, journalId: note.journalId, reference: note.id, amount: note.amount })}>
-                                      Mark as Paid
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => setPartialPaymentDialog({ open: true, journalId: note.journalId, reference: note.id, amount: note.amount, paidAmount: note.paidAmount })}>
-                                      Record Partial Payment
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                                {canManagePayments && (note.paymentStatus === 'paid' || note.paymentStatus === 'partial') && note.paymentStatus !== 'reconciled' && (
-                                  <DropdownMenuItem onClick={() => setReconcileDialog({ open: true, journalId: note.journalId, reference: note.id })}>
-                                    Reconcile Payment
-                                  </DropdownMenuItem>
-                                )}
-                                {note.paymentStatus === 'unpaid' || note.paymentStatus === 'partial' ? (
-                                  <DropdownMenuItem onClick={() => navigate(`/payment-reconciliation?search=${note.id}`)}>
-                                    View in Reconciliation
-                                  </DropdownMenuItem>
-                                ) : null}
-                                <DropdownMenuItem onClick={() => handleExportPDF(note.journalId, note.id)}>
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Export PDF
-                                </DropdownMenuItem>
-                                {canVoid && note.status !== 'Voided' && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })} className="text-orange-600">
-                                      Void
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                                {canDelete && note.paymentStatus === 'unpaid' && (
-                                  <DropdownMenuItem onClick={() => setDeleteDialog({ open: true, journalId: note.journalId, reference: note.id, noteType: 'debit' })} className="text-red-600">
-                                    Delete
-                                  </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -361,73 +408,102 @@ const DebitCreditNotes = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {creditNotes.map(note => (
-                      <TableRow key={note.journalId}>
-                        <TableCell className="font-medium">{note.id}</TableCell>
-                        <TableCell>{note.date}</TableCell>
-                        <TableCell>{note.entityName}</TableCell>
-                        <TableCell>{note.policyRef}</TableCell>
-                        <TableCell>{note.reason}</TableCell>
-                        <TableCell className="text-green-600">
-                          {note.currency || 'R'} {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
-                          {note.paidAmount > 0 && (
-                            <div className="text-xs text-blue-600 mt-0.5">
-                              Applied: R{note.paidAmount.toFixed(2)}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {getPaymentStatusBadge(note.paymentStatus)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => navigate(`/notes/credit/${note.journalId}`)}
-                            >
-                              View
-                            </Button>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreVertical className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {canManagePayments && note.paymentStatus !== 'paid' && note.paymentStatus !== 'reconciled' && (
-                                  <DropdownMenuItem onClick={() => setApplyCreditDialog({ open: true, creditNoteId: note.journalId, reference: note.id, amount: note.amount })}>
-                                    Apply Credit to Debit Note
+                    {creditNotes.map(note => {
+                      const availableAmount = Math.max(0, (note.amount || 0) - (note.paidAmount || 0));
+
+                      return (
+                        <TableRow key={note.journalId}>
+                          <TableCell className="font-medium">{note.id}</TableCell>
+                          <TableCell>{note.date}</TableCell>
+                          <TableCell>{note.entityName}</TableCell>
+                          <TableCell>{note.policyRef}</TableCell>
+                          <TableCell>{note.reason}</TableCell>
+                          <TableCell className="text-green-600">
+                            {note.currency || 'R'}{' '}
+                            {typeof note.amount === 'number' ? note.amount.toLocaleString() : '-'}
+                            {note.paidAmount > 0 && (
+                              <div className="text-xs text-blue-600 mt-0.5">
+                                Applied: R{note.paidAmount.toFixed(2)}
+                              </div>
+                            )}
+                            {availableAmount > 0 && (
+                              <div className="text-xs text-emerald-600 mt-0.5">
+                                Available: R{availableAmount.toFixed(2)}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {getPaymentStatusBadge(note.paymentStatus)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => navigate(`/notes/credit/${note.journalId}`)}
+                              >
+                                View
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm">
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {canManagePayments &&
+                                    note.paymentStatus !== 'paid' && (
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          setApplyCreditDialog({
+                                            open: true,
+                                            creditNoteId: note.journalId,
+                                            reference: note.id,
+                                            // Prefer remaining available amount; fall back to total if not computed
+                                            amount: availableAmount > 0 ? availableAmount : note.amount || 0,
+                                          })
+                                        }
+                                      >
+                                        Apply Credit to Debit Note
+                                      </DropdownMenuItem>
+                                    )}
+                                  <DropdownMenuItem onClick={() => handleExportPDF(note.journalId, note.id)}>
+                                    <Download className="h-4 w-4 mr-2" />
+                                    Export PDF
                                   </DropdownMenuItem>
-                                )}
-                                {canManagePayments && note.paymentStatus !== 'paid' && note.paymentStatus !== 'reconciled' && (
-                                  <DropdownMenuItem onClick={() => setRefundPaidDialog({ open: true, journalId: note.journalId, reference: note.id, amount: note.amount })}>
-                                    Mark Refund Paid
-                                  </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem onClick={() => handleExportPDF(note.journalId, note.id)}>
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Export PDF
-                                </DropdownMenuItem>
-                                {canVoid && note.status !== 'Voided' && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })} className="text-orange-600">
-                                      Void
+                                  {canVoid && note.status !== 'Voided' && (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() => setConfirmVoidId({ id: note.journalId, ref: note.id })}
+                                        className="text-orange-600"
+                                      >
+                                        Void
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
+                                  {canDelete && note.paymentStatus === 'unpaid' && (
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        setDeleteDialog({
+                                          open: true,
+                                          journalId: note.journalId,
+                                          reference: note.id,
+                                          noteType: 'credit',
+                                        })
+                                      }
+                                      className="text-red-600"
+                                    >
+                                      Delete
                                     </DropdownMenuItem>
-                                  </>
-                                )}
-                                {canDelete && note.paymentStatus === 'unpaid' && (
-                                  <DropdownMenuItem onClick={() => setDeleteDialog({ open: true, journalId: note.journalId, reference: note.id, noteType: 'credit' })} className="text-red-600">
-                                    Delete
-                                  </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>

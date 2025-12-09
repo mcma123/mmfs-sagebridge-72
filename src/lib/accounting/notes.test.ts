@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDebitJournal, buildCreditJournal, validateBalanced, makeNoteRef } from './notes';
+import { buildDebitJournal, buildCreditJournal, validateBalanced } from './notes';
 
 describe('accounting note mappers', () => {
   it('builds a balanced debit note journal', () => {
@@ -27,7 +27,9 @@ describe('accounting note mappers', () => {
     };
 
     const payload = buildDebitJournal(form, 10, accounts, '2024-01-25');
-    expect(payload.reference?.startsWith('DN-')).toBe(true);
+    // Reference is now generated server-side; client marks this as a debit note
+    expect(payload.reference).toBeUndefined();
+    expect(payload.note_type).toBe('debit_note');
     expect(payload.date).toBe('2024-01-25');
     expect(validateBalanced(payload.lines)).toBe(true);
     expect(payload.lines).toHaveLength(3);
@@ -63,7 +65,9 @@ describe('accounting note mappers', () => {
     };
 
     const payload = buildCreditJournal(form, 11, accounts, '2024-02-20');
-    expect(payload.reference?.startsWith('CN-')).toBe(true);
+    // Reference is now generated server-side; client marks this as a credit note
+    expect(payload.reference).toBeUndefined();
+    expect(payload.note_type).toBe('credit_note');
     expect(validateBalanced(payload.lines)).toBe(true);
     expect(payload.lines).toHaveLength(3);
     // Your share 5% of 8000 = 400, deduction 35% = 140, net due to you = 260

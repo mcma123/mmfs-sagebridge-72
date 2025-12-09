@@ -48,12 +48,6 @@ export type CreditAccountsSelection = {
   deductionIncomeAccountId: number; // Recovery/Income for deductions
 };
 
-export function makeNoteRef(type: 'debit' | 'credit', when: Date = new Date()): string {
-  const prefix = type === 'debit' ? 'DN' : 'CN';
-  const year = when.getFullYear();
-  const seq = String(when.getTime()).slice(-6);
-  return `${prefix}-${year}-${seq}`;
-}
 
 export function round2(n: number): number { return Math.round(n * 100) / 100; }
 
@@ -122,10 +116,11 @@ export function buildDebitJournal(
 
   return {
     date: postDateISO,
-    reference: makeNoteRef('debit', new Date(postDateISO)),
     description,
     lines,
-  };
+    // Mark as debit note so backend generates a DN- reference via fn_next_note_reference
+    note_type: 'debit_note',
+  } as PostJournalRequest;
 }
 
 export function buildCreditJournal(
@@ -186,8 +181,9 @@ export function buildCreditJournal(
 
   return {
     date: postDateISO,
-    reference: makeNoteRef('credit', new Date(postDateISO)),
     description,
     lines,
-  };
+    // Mark as credit note so backend generates a CN- reference via fn_next_note_reference
+    note_type: 'credit_note',
+  } as PostJournalRequest;
 }

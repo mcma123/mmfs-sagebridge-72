@@ -77,7 +77,8 @@ const CreateCreditNote = () => {
 
   const grossPremium = parseFloat(form.watch('grossPremium') || '0');
   const yourSharePercentage = parseFloat(form.watch('yourSharePercentage') || '0');
-  const deductionPercentage = parseFloat(form.watch('deductionPercentage') || '0');
+  // Clamp deductions so they can never be negative in calculations
+  const deductionPercentage = Math.max(0, parseFloat(form.watch('deductionPercentage') || '0'));
 
   const yourShareAmount = (grossPremium * yourSharePercentage) / 100;
   const deductionAmount = (yourShareAmount * deductionPercentage) / 100;
@@ -273,9 +274,13 @@ const CreateCreditNote = () => {
                         <SelectValue placeholder="Select entity" />
                       </SelectTrigger>
                       <SelectContent>
-                        {entities.map(e => (
-                          <SelectItem key={e.id} value={String(e.id)}>{e.name} ({e.type})</SelectItem>
-                        ))}
+                        {entities
+                          .filter(e => e.name !== 'Default Client' && (e.status === 'Active' || !e.status))
+                          .map(e => (
+                            <SelectItem key={e.id} value={String(e.id)}>
+                              {e.name} ({e.type})
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -420,7 +425,13 @@ const CreateCreditNote = () => {
                     <FormItem>
                       <FormLabel>Total Deductions (%) *</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" placeholder="35.00" {...field} />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="35.00"
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

@@ -145,6 +145,12 @@ export type PostJournalRequest = {
   reference?: string | null;
   description?: string | null;
   lines: JournalLineInput[];
+  /**
+   * Optional classification for journals that represent debit/credit notes.
+   * When set to 'debit_note' or 'credit_note' and no reference is provided,
+   * the backend will generate a DN-/CN- reference using a global sequence.
+   */
+  note_type?: 'debit_note' | 'credit_note';
 };
 
 export type CreateAccountRequest = {

@@ -261,19 +261,54 @@ router.delete('/accounts/:id', authorize(['admin', 'accountant']), async (req: a
 // Journals: post and list
 router.post('/journals', authorize(['admin', 'accountant']), requireSupabase, async (req: any, res: any, next: any) => {
   try {
-    const { date, reference, description, lines } = req.body || {};
-    if (!date || !Array.isArray(lines) || lines.length === 0) throw { status: 400, code: 'INVALID_BODY', message: 'date and lines[] required' };
+    const { date, reference: bodyReference, description, lines, note_type } = req.body || {};
+    if (!date || !Array.isArray(lines) || lines.length === 0) {
+      throw { status: 400, code: 'INVALID_BODY', message: 'date and lines[] required' };
+    }
+
+    let reference = bodyReference ?? null;
+
+    // For debit and credit notes, generate a server-side reference if not supplied.
+    // This ensures DN-/CN- numbers are unique and monotonically increasing.
+    if ((note_type === 'debit_note' || note_type === 'credit_note') && !reference) {
+      if (!req.pg) {
+        throw {
+          status: 500,
+          code: 'PG_UNAVAILABLE',
+          message: 'Postgres client not available on request object for note reference generation',
+        };
+      }
+
+      const typeParam = note_type === 'debit_note' ? 'debit' : 'credit';
+      const result = await req.pg.query(
+        'SELECT accounting.fn_next_note_reference($1, $2::date) AS reference',
+        [typeParam, date]
+      );
+
+      reference = result.rows?.[0]?.reference || null;
+
+      if (!reference) {
+        throw {
+          status: 500,
+          code: 'DB_ERROR',
+          message: 'fn_next_note_reference returned no reference',
+        };
+      }
+    }
+
     const createdBy = Number(req.headers['x-user-id']) || null;
     const { data, error } = await req.db.rpc('fn_post_journal', {
       p_date: date,
       p_reference: reference ?? null,
       p_description: description ?? null,
       p_created_by: createdBy,
-      p_lines: lines
+      p_lines: lines,
     });
     if (error) throw { status: 500, code: 'DB_ERROR', message: error.message };
     res.status(201).json({ journal_id: data });
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Create journal draft (allows unbalanced)
@@ -612,7 +647,7 @@ router.get(
         throw { status: 400, code: 'INVALID_ID', message: 'valid debit note id required' };
       }
 
-      // Summary row from view
+      // First try the summary view (fast path)
       const summaryResult = await req.pg.query(
         `SELECT *
          FROM accounting.vw_debit_credit_summary
@@ -620,11 +655,80 @@ router.get(
         [debitNoteId]
       );
 
-      if (summaryResult.rows.length === 0) {
-        throw { status: 404, code: 'NOT_FOUND', message: 'debit note summary not found' };
-      }
+      let summary: any;
 
-      const summary = summaryResult.rows[0];
+      if (summaryResult.rows.length > 0) {
+        summary = summaryResult.rows[0];
+      } else {
+        // Fallback path: compute summary directly from base tables so that
+        // newly created debit notes still work even if the view does not yet
+        // return a row for some reason.
+
+        // Ensure the debit note exists and is a non-voided DN- journal
+        const journalResult = await req.pg.query(
+          `SELECT id, reference, date, voided_at
+           FROM accounting.journals
+           WHERE id = $1`,
+          [debitNoteId]
+        );
+
+        if (journalResult.rows.length === 0) {
+          throw { status: 404, code: 'NOT_FOUND', message: 'debit note not found' };
+        }
+
+        const journal = journalResult.rows[0];
+
+        if (!journal.reference || !String(journal.reference).startsWith('DN-')) {
+          throw {
+            status: 400,
+            code: 'INVALID_NOTE',
+            message: 'Specified journal is not a debit note',
+          };
+        }
+
+        if (journal.voided_at) {
+          throw {
+            status: 400,
+            code: 'VOIDED_NOTE',
+            message: 'Cannot load summary for a voided debit note',
+          };
+        }
+
+        // Compute debit total from journal lines
+        const debitTotalResult = await req.pg.query(
+          `SELECT COALESCE(SUM(debit), 0) AS debit_total
+           FROM accounting.journal_lines
+           WHERE journal_id = $1
+             AND debit > 0`,
+          [debitNoteId]
+        );
+
+        const debit_total = Number(debitTotalResult.rows[0]?.debit_total || 0);
+
+        // Compute total credits allocated to this debit note
+        const creditsAllocatedResult = await req.pg.query(
+          `SELECT COALESCE(SUM(amount), 0) AS total_credits_allocated
+           FROM accounting.note_applications
+           WHERE debit_note_id = $1`,
+          [debitNoteId]
+        );
+
+        const total_credits_allocated = Number(
+          creditsAllocatedResult.rows[0]?.total_credits_allocated || 0
+        );
+
+        const remaining_amount = debit_total - total_credits_allocated;
+
+        summary = {
+          debit_note_id: debitNoteId,
+          debit_reference: journal.reference,
+          debit_date: journal.date,
+          debit_total,
+          total_credits_allocated,
+          remaining_amount,
+          mmfs_income: remaining_amount,
+        };
+      }
 
       // Linked credit applications
       const creditsResult = await req.pg.query(

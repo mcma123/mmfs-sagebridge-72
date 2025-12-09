@@ -56,7 +56,8 @@ export function ApplyCreditDialog({
   useEffect(() => {
     if (open) {
       setDebitNoteId('');
-      setAmount(creditNoteAmount.toString());
+      // Only pre-fill when there is a positive available amount; otherwise leave empty.
+      setAmount(creditNoteAmount > 0 ? creditNoteAmount.toString() : '');
       setAppliedDate(new Date().toISOString().split('T')[0]);
       setNotes('');
     }
@@ -77,7 +78,9 @@ export function ApplyCreditDialog({
       return;
     }
 
-    if (applyAmount > creditNoteAmount) {
+    // Only enforce the upper bound when we know the remaining amount is positive.
+    // For any other case, let the backend enforce the true available balance.
+    if (creditNoteAmount > 0 && applyAmount > creditNoteAmount) {
       toast.error('Amount cannot exceed credit note total');
       return;
     }
@@ -150,14 +153,18 @@ export function ApplyCreditDialog({
                 type="number"
                 step="0.01"
                 min="0.01"
-                max={creditNoteAmount}
+                // Only apply a max attribute when we have a positive limit.
+                // This avoids HTML5 validation errors like "min must be less than max (0)".
+                max={creditNoteAmount > 0 ? creditNoteAmount : undefined}
                 placeholder="0.00"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 required
               />
               <p className="text-sm text-muted-foreground">
-                Maximum: R{creditNoteAmount.toFixed(2)}
+                {creditNoteAmount > 0
+                  ? `Maximum: R${creditNoteAmount.toFixed(2)}`
+                  : 'Maximum is based on the available credit for this note.'}
               </p>
             </div>
 
