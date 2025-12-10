@@ -5,7 +5,6 @@ import MainLayout from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import mmfsLogo from '@/assets/mmfs-logo.jpg';
 import { getJournal, type JournalDTO } from '@/lib/api/accounting';
 import { format } from 'date-fns';
 
@@ -133,7 +132,7 @@ const ViewCreditNote = () => {
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white p-8 max-w-[210mm] mx-auto shadow-lg print:shadow-none print:p-0 text-black"
+                className="bg-white p-8 max-w-[210mm] mx-auto shadow-lg print:shadow-none print:p-0 print:m-0 print:max-w-none print:w-full text-black"
                 style={{ minHeight: '297mm' }} // A4 height
             >
                 {/* Header Title */}
@@ -146,7 +145,7 @@ const ViewCreditNote = () => {
                 {/* Logo and Address */}
                 <div className="flex justify-between items-start mb-12">
                     <div className="w-1/2">
-                        <img src={mmfsLogo} alt="MMFS Logo" className="h-20 w-auto object-contain mb-4" />
+                        <img src="/banner.png" alt="Company Banner" className="h-24 w-auto object-contain mb-4" />
                         <div className="text-sm font-medium">
                             <p>MMFS Intermediaries Pty Ltd</p>
                             <p>Atrium on 5th, 9th Floor, 5th Street,</p>

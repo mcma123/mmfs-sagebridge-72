@@ -10,7 +10,7 @@ interface MainLayoutProps {
 
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
+
   const toggleSidebar = () => {
     setSidebarCollapsed(!sidebarCollapsed);
   };
@@ -23,14 +23,18 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   };
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
-      <Sidebar collapsed={sidebarCollapsed} />
-      
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <Header toggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} />
-        
-        <motion.main 
-          className="flex-1 overflow-y-auto px-6 py-6"
+    <div className="flex h-screen bg-background overflow-hidden print:h-auto print:overflow-visible print:block">
+      <div className="print:hidden h-full">
+        <Sidebar collapsed={sidebarCollapsed} />
+      </div>
+
+      <div className="flex flex-col flex-1 overflow-hidden print:h-auto print:overflow-visible print:block">
+        <div className="print:hidden">
+          <Header toggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} />
+        </div>
+
+        <motion.main
+          className="flex-1 overflow-y-auto px-6 py-6 print:overflow-visible print:h-auto print:px-0 print:py-0"
           initial="initial"
           animate="enter"
           exit="exit"
