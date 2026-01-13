@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
@@ -9,26 +9,64 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Search, Plus, Building2, Users, Shield } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { listEntities, removeEntity, type BaseEntity, type ClientEntity, type CdantEntity, type ReinsurerEntity } from '@/lib/store/entities';
+import { getEntities, deleteEntity, type EntityDTO } from '@/lib/api/accounting';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { getRolesFromToken } from '@/lib/api/auth';
-
-// Store-derived lists (computed within component for fresh data)
+import { useToast } from '@/hooks/use-toast';
 
 const Entities = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
+  const [entities, setEntities] = useState<EntityDTO[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [refreshTick, setRefreshTick] = useState(0);
-  const clients = useMemo(() => listEntities('Client') as ClientEntity[], [refreshTick]);
-  const cdants = useMemo(() => listEntities('CDANT') as CdantEntity[], [refreshTick]);
-  const reinsurers = useMemo(() => listEntities('Reinsurer') as ReinsurerEntity[], [refreshTick]);
-
-  const [selected, setSelected] = useState<BaseEntity | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<EntityDTO | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const roles = getRolesFromToken();
   const canDelete = roles.includes('admin') || roles.includes('accountant');
+
+  const fetchEntities = async () => {
+    try {
+      setIsLoading(true);
+      const resp = await getEntities();
+      setEntities(resp.items || []);
+    } catch (err: any) {
+      toast({
+        title: 'Failed to load entities',
+        description: err.message || 'Could not fetch entities from the server.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEntities();
+  }, []);
+
+  const clients = entities.filter(e => e.type === 'Client');
+  const cdants = entities.filter(e => e.type === 'CDANT');
+  const reinsurers = entities.filter(e => e.type === 'Reinsurer');
+
+  const handleDelete = async () => {
+    if (!confirmDeleteId) return;
+    try {
+      await deleteEntity(confirmDeleteId);
+      toast({ title: 'Entity deleted', description: 'The entity has been removed.' });
+      fetchEntities(); // Refresh list
+    } catch (err: any) {
+      toast({
+        title: 'Delete failed',
+        description: err.message || 'Could not delete the entity. It may be in use.',
+        variant: 'destructive',
+      });
+    } finally {
+      setConfirmDeleteId(null);
+    }
+  };
 
   return (
     <MainLayout>
@@ -44,23 +82,23 @@ const Entities = () => {
             Add Entity
           </Button>
         </div>
-        
+
         <Tabs defaultValue="clients" className="w-full">
           <TabsList>
             <TabsTrigger value="clients">
               <Building2 className="h-4 w-4 mr-2" />
-              Clients
+              Clients ({clients.length})
             </TabsTrigger>
             <TabsTrigger value="cdants">
               <Users className="h-4 w-4 mr-2" />
-              CDANTs
+              CDANTs ({cdants.length})
             </TabsTrigger>
             <TabsTrigger value="reinsurers">
               <Shield className="h-4 w-4 mr-2" />
-              Reinsurers
+              Reinsurers ({reinsurers.length})
             </TabsTrigger>
           </TabsList>
-          
+
           {/* Clients Tab */}
           <TabsContent value="clients" className="space-y-4">
             <Card>
@@ -84,40 +122,48 @@ const Entities = () => {
                     <TableRow>
                       <TableHead>Client Name</TableHead>
                       <TableHead>Currency</TableHead>
-                      <TableHead>Outstanding Balance</TableHead>
+                      <TableHead>Details</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {clients
-                      .filter((c) => c.name.toLowerCase().includes(searchTerm.toLowerCase()))
-                      .map(client => (
-                      <TableRow key={client.id}>
-                        <TableCell className="font-medium">{client.name}</TableCell>
-                        <TableCell>{client.currency || 'ZAR'}</TableCell>
-                        <TableCell className="text-amber-600">
-                          {(client.currency || 'ZAR')} {Number(client.outstanding || 0).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-green-50 text-green-700">
-                            {client.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="flex gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => setSelected(client)}>View</Button>
-                          {canDelete && (
-                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmDeleteId(String(client.id))}>Delete</Button>
-                          )}
+                    {clients.length === 0 && !isLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                          No clients found.
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      clients
+                        .filter((c) => c.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                        .map(client => (
+                          <TableRow key={client.id}>
+                            <TableCell className="font-medium">{client.name}</TableCell>
+                            <TableCell>{client.currency || 'ZAR'}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {client.notes ? (client.notes.length > 50 ? client.notes.substring(0, 50) + '...' : client.notes) : '-'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={client.status === 'Active' ? "bg-green-50 text-green-700" : "bg-gray-100"}>
+                                {client.status || 'Active'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="flex gap-2">
+                              <Button variant="ghost" size="sm" onClick={() => setSelected(client)}>View</Button>
+                              {canDelete && (
+                                <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmDeleteId(client.id)}>Delete</Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
           </TabsContent>
-          
+
           {/* CDANTs Tab */}
           <TabsContent value="cdants" className="space-y-4">
             <Card>
@@ -129,39 +175,52 @@ const Entities = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>CDANT Name</TableHead>
-                      <TableHead>Commission Rate</TableHead>
-                      <TableHead>Commission Payable</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Details</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {cdants.map(cdant => (
-                      <TableRow key={cdant.id}>
-                        <TableCell className="font-medium">{cdant.name}</TableCell>
-                        <TableCell>{Number(cdant.commissionRate || 0)}%</TableCell>
-                        <TableCell className="text-red-600">
-                          {(cdant.currency || 'ZAR')} {Number(cdant.outstanding || 0).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-green-50 text-green-700">
-                            {cdant.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="flex gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => setSelected(cdant)}>View</Button>
-                          {canDelete && (
-                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmDeleteId(String(cdant.id))}>Delete</Button>
-                          )}
+                    {cdants.length === 0 && !isLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                          No CDANTs found.
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      cdants.map(cdant => (
+                        <TableRow key={cdant.id}>
+                          <TableCell className="font-medium">{cdant.name}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col text-xs">
+                              {cdant.email && <span>{cdant.email}</span>}
+                              {cdant.phone && <span>{cdant.phone}</span>}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm">
+                            {cdant.notes ? (cdant.notes.length > 50 ? cdant.notes.substring(0, 50) + '...' : cdant.notes) : '-'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={cdant.status === 'Active' ? "bg-green-50 text-green-700" : "bg-gray-100"}>
+                              {cdant.status || 'Active'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="flex gap-2">
+                            <Button variant="ghost" size="sm" onClick={() => setSelected(cdant)}>View</Button>
+                            {canDelete && (
+                              <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmDeleteId(cdant.id)}>Delete</Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
           </TabsContent>
-          
+
           {/* Reinsurers Tab */}
           <TabsContent value="reinsurers" className="space-y-4">
             <Card>
@@ -173,33 +232,41 @@ const Entities = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Reinsurer Name</TableHead>
-                      <TableHead>Treaty Terms</TableHead>
-                      <TableHead>Net Position</TableHead>
+                      <TableHead>Country</TableHead>
+                      <TableHead>Details</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {reinsurers.map(reinsurer => (
-                      <TableRow key={reinsurer.id}>
-                        <TableCell className="font-medium">{reinsurer.name}</TableCell>
-                        <TableCell>{reinsurer.treatyTerms}</TableCell>
-                        <TableCell className="text-green-600">
-                          {(reinsurer.currency || 'USD')} {Math.abs(Number(reinsurer.netPosition ?? 0)).toLocaleString()} (Payable)
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-green-50 text-green-700">
-                            {reinsurer.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="flex gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => setSelected(reinsurer)}>View</Button>
-                          {canDelete && (
-                            <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmDeleteId(String(reinsurer.id))}>Delete</Button>
-                          )}
+                    {reinsurers.length === 0 && !isLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                          No Reinsurers found.
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      reinsurers.map(reinsurer => (
+                        <TableRow key={reinsurer.id}>
+                          <TableCell className="font-medium">{reinsurer.name}</TableCell>
+                          <TableCell>{reinsurer.country || '-'}</TableCell>
+                          <TableCell className="text-muted-foreground text-sm">
+                            {reinsurer.notes ? (reinsurer.notes.length > 50 ? reinsurer.notes.substring(0, 50) + '...' : reinsurer.notes) : '-'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={reinsurer.status === 'Active' ? "bg-green-50 text-green-700" : "bg-gray-100"}>
+                              {reinsurer.status || 'Active'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="flex gap-2">
+                            <Button variant="ghost" size="sm" onClick={() => setSelected(reinsurer)}>View</Button>
+                            {canDelete && (
+                              <Button variant="ghost" size="sm" className="text-red-600" onClick={() => setConfirmDeleteId(reinsurer.id)}>Delete</Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -231,19 +298,15 @@ const Entities = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this entity?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action will remove the entity from your local list. If the entity exists in accounting and is referenced by journals, deletion will be blocked.
+              This action will remove the entity including from the database. This action cannot be undone.
+              Note: If this entity is used in existing journals, deletion will be blocked by the server.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setConfirmDeleteId(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
-                if (confirmDeleteId) {
-                  removeEntity(confirmDeleteId);
-                  setConfirmDeleteId(null);
-                  setRefreshTick((t) => t + 1);
-                }
-              }}
+              className="bg-red-600 hover:bg-red-700"
+              onClick={handleDelete}
             >
               Delete
             </AlertDialogAction>

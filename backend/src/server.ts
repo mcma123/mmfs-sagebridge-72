@@ -51,6 +51,12 @@ app.use('/api/v1/dms/dashboard', dmsDashboardRouter);
 // Banking Import endpoints
 app.use('/api/v1/banking/import', bankingImportRouter);
 
+// Catch-all for API routes to prevent falling through to static files
+// This returns a JSON 404 instead of letting Express static or catch-all HTML handler take over
+app.use('/api/*', (req, res) => {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'API endpoint not found' } });
+});
+
 app.use(errorHandler);
 
 export default app;

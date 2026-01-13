@@ -12,7 +12,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
-import { addEntity } from '@/lib/store/entities';
+// Local store import removed
+
 import { createEntity } from '@/lib/api/accounting';
 
 const formSchema = z.object({
@@ -103,8 +104,8 @@ const AddEntity: React.FC = () => {
       };
 
       await createEntity(payload);
-      // Keep local store in sync so the Entities screen still works offline / without backend round-trips.
-      addEntity(values as any);
+      // Local store update removed - Entities page now fetches from API
+
 
       toast({ title: 'Entity saved', description: `${values.type} "${values.name}" added successfully.` });
       navigate('/entities');
@@ -132,7 +133,8 @@ const AddEntity: React.FC = () => {
       };
 
       await createEntity(payload);
-      addEntity(values as any);
+      // addEntity(values as any); // Removed
+
 
       toast({ title: 'Entity saved', description: `${values.type} "${values.name}" added. You can add another.` });
       form.reset({ ...values, name: '', notes: '' });
