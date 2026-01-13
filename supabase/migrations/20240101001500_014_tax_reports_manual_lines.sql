@@ -7,9 +7,7 @@
 -- ============================================================================
 
 -- Drop and recreate the function with new signature
--- DROP FUNCTION IF EXISTS public.fn_create_tax_return(TEXT, DATE, DATE, DATE, BIGINT);
--- DROP FUNCTION IF EXISTS public.fn_create_tax_return(TEXT, DATE, DATE, DATE, BIGINT, JSONB);
-
+DROP FUNCTION IF EXISTS public.fn_create_tax_return(TEXT, DATE, DATE, DATE, BIGINT);
 
 CREATE OR REPLACE FUNCTION public.fn_create_tax_return(
   p_type TEXT,

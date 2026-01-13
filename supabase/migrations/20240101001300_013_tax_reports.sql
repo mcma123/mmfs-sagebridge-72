@@ -51,7 +51,6 @@ CREATE INDEX IF NOT EXISTS idx_tax_return_lines_return_id ON accounting.tax_retu
 -- ============================================================================
 
 -- View: Current tax liabilities from ledger
-DROP VIEW IF EXISTS accounting.v_tax_liabilities CASCADE;
 CREATE OR REPLACE VIEW accounting.v_tax_liabilities AS
 SELECT
   a.id AS account_id,
@@ -68,7 +67,6 @@ HAVING COALESCE(SUM(le.credit - le.debit), 0) > 0
 ORDER BY a.code;
 
 -- Public views for Supabase Data API access
-DROP VIEW IF EXISTS public.accounting_tax_returns CASCADE;
 CREATE OR REPLACE VIEW public.accounting_tax_returns AS
 SELECT
   id,
@@ -88,7 +86,6 @@ SELECT
   reviewed_by
 FROM accounting.tax_returns;
 
-DROP VIEW IF EXISTS public.accounting_tax_return_lines CASCADE;
 CREATE OR REPLACE VIEW public.accounting_tax_return_lines AS
 SELECT
   id,
@@ -100,7 +97,6 @@ SELECT
   created_at
 FROM accounting.tax_return_lines;
 
-DROP VIEW IF EXISTS public.accounting_tax_liabilities CASCADE;
 CREATE OR REPLACE VIEW public.accounting_tax_liabilities AS
 SELECT
   account_id,

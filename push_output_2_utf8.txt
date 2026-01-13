@@ -1,0 +1,49 @@
+﻿npx : (node:30488) 
+Warning: Setting the N
+ODE_TLS_REJECT_UNAUTHO
+RIZED environment 
+variable to '0' makes 
+TLS connections and 
+HTTPS requests 
+insecure by disabling 
+certificate 
+verification.
+At line:1 char:40
++ ... ORIZED='0'; npx 
+supabase db push 
+--db-url "postgresql:/
+/postgres:qykm ...
++                 ~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: ((node:3048   
+ 8) Wa...e verific    
+ation.:String) []    
+, RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+(Use `node 
+--trace-warnings ...` 
+to show where the 
+warning was created)
+Connecting to remote 
+database...
+failed to connect to 
+postgres: failed to 
+connect to `host=mmfs-
+pre0225supabase-6929f4
+-147-79-100-232.traefi
+k.me user=postgres 
+database=postgres`: 
+tls error (server 
+refused TLS 
+connection)
+Try rerunning the 
+command with --debug 
+to troubleshoot the 
+error.

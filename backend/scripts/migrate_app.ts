@@ -11,9 +11,13 @@ function getPool(): Pool {
     (typeof process.env.PGSSL === 'string' && process.env.PGSSL.toLowerCase() === 'true') ||
     (connectionString && /sslmode=require/i.test(connectionString));
 
+  const sslConfig =
+    process.env.PGSSL === 'false'
+      ? undefined
+      : { rejectUnauthorized: false };
+
   if (connectionString) {
-    // Force SSL for Supabase; ignore self-signed certs
-    return new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
+    return new Pool({ connectionString, ssl: sslConfig });
   }
 
   const host = process.env.PGHOST || process.env.DB_HOST || process.env.SUPABASE_DB_HOST;
@@ -25,8 +29,8 @@ function getPool(): Pool {
   if (!host || !password) {
     throw new Error('Postgres env missing: PGHOST/DB_HOST/SUPABASE_DB_HOST, PGPASSWORD/DB_PASSWORD/SUPABASE_DB_PASSWORD');
   }
-  // Force SSL for Supabase; ignore self-signed certs
-  return new Pool({ host, port, user, password, database, ssl: { rejectUnauthorized: false } });
+
+  return new Pool({ host, port, user, password, database, ssl: sslConfig });
 }
 
 async function run() {
@@ -71,5 +75,6 @@ async function run() {
 
 run().catch((err) => {
   console.error('[migrate_app] ERROR', err);
+  fs.writeFileSync('migration_error.txt', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
   process.exit(1);
 });

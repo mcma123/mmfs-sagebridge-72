@@ -1,0 +1,4 @@
+{
+  "stack": "Error: SASL: SCRAM-SERVER-FINAL-MESSAGE: server signature is missing\n    at C:\\Users\\HP22\\Desktop\\sagebridge-app-72 - Copy\\node_modules\\pg-pool\\index.js:45:11\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async run (C:\\Users\\HP22\\Desktop\\sagebridge-app-72 - Copy\\backend\\scripts\\migrate_app.ts:69:5)",
+  "message": "SASL: SCRAM-SERVER-FINAL-MESSAGE: server signature is missing"
+}

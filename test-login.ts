@@ -7,7 +7,7 @@ async function testLogin() {
         const res = await fetch('http://localhost:3000/api/v1/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: 'admin@mmfs.co.za', password: 'P@sswordMMFSadmin' })
+            body: JSON.stringify({ email: 'mcmarsh.fif@gmail.com', password: 'P@ssword61157' })
         });
 
         console.log('Status:', res.status, res.statusText);
